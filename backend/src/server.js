@@ -27,7 +27,7 @@ app.use(morgan('combined', { stream: { write: msg => logger.info(msg.trim()) } }
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:5173',
   process.env.ONLINE_STORE_URL || 'http://localhost:5174',
-  'https://Lenoire-liard.vercel.app',
+  'https://Lenoire.vercel.app',
 ];
 app.use(cors({
   origin: (origin, cb) => {
