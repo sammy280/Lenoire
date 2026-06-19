@@ -9,12 +9,11 @@ async function main() {
   // ===== USERS =====
   const adminPassword = await bcrypt.hash('Admin@1234', 12);
   const managerPassword = await bcrypt.hash('Manager@1234', 12);
-  const cashierPassword = await bcrypt.hash('Cashier@1234', 12);
+  const cashierPassword = await bcrypt.hash('cashier@1234', 12);
   const storekeeperPassword = await bcrypt.hash('Storekeeper@1234', 12);
   // Each PIN-login user gets their OWN unique PIN
   const yvonePin    = await bcrypt.hash('1111', 12);
   const denisePin   = await bcrypt.hash('2222', 12);
-  const ladoucePin  = await bcrypt.hash('3333', 12);
   const poulletPin  = await bcrypt.hash('4444', 12);
   const cleverPin   = await bcrypt.hash('5555', 12);
   const umunuPin    = await bcrypt.hash('6666', 12);
@@ -163,15 +162,7 @@ async function main() {
     },
   });
 
-  const ladouce = await prisma.user.upsert({
-    where: { email: 'ladouce@sammy.rw' },
-    update: {},
-    create: {
-      email: 'ladouce@sammy.rw', pin: ladoucePin, name: 'Ladouce',
-      role: 'WAITER', loginType: 'PIN',
-      profile: { create: { employmentDate: new Date('2022-05-01'), phone: '+250780000013', address: 'Kigali, Rwanda' } },
-    },
-  });
+ 
 
   const poullet = await prisma.user.upsert({
     where: { email: 'poullet@sammy.rw' },
