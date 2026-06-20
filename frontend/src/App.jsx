@@ -148,7 +148,7 @@ export default function App() {
           <Route path="/menu" element={<ProtectedRoute roles={['ADMIN', 'MANAGER', 'WAITER', 'CASHIER']}><MenuPage /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute roles={['ADMIN', 'MANAGER', 'STOREKEEPER']}><InventoryPage /></ProtectedRoute>} />
           <Route path="/suppliers" element={<ProtectedRoute roles={['ADMIN', 'MANAGER', 'STOREKEEPER']}><SuppliersPage /></ProtectedRoute>} />
-          <Route path="/attendance" element={<ProtectedRoute roles={['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR', 'CASHIER', 'STOREKEEPER']}><AttendancePage /></ProtectedRoute>} />
+          <Route path="/attendance" element={<ProtectedRoute roles={['ADMIN', 'MANAGER', 'WAITER', 'KITCHEN', 'BAR', 'CASHIER']}><AttendancePage /></ProtectedRoute>} />
           <Route path="/shifts" element={<ProtectedRoute roles={['ADMIN', 'MANAGER']}><ShiftsPage /></ProtectedRoute>} />
           <Route path="/payroll" element={<ProtectedRoute roles={['ADMIN', 'MANAGER']}><PayrollPage /></ProtectedRoute>} />
           <Route path="/expenses" element={<ProtectedRoute roles={['ADMIN', 'MANAGER']}><ExpensesPage /></ProtectedRoute>} />
