@@ -80,7 +80,7 @@ async function main() {
     where: { email: 'charlers.storekeeper@sammy.rw' },
     update: {},
     create: {
-      email: 'charles.storekeeper@sammy.rw', passwordHash: storekeeperPassword, name: 'Charles',
+      email: 'charlers.storekeeper@sammy.rw', passwordHash: storekeeperPassword, name: 'Charles',
       role: 'STOREKEEPER', loginType: 'EMAIL_PASSWORD',
       profile: { create: { employmentDate: new Date('2021-05-01'), phone: '+250780000015', address: 'Kigali, Rwanda' } }, 
     },
