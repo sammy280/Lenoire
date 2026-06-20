@@ -10,7 +10,7 @@ async function main() {
   const adminPassword = await bcrypt.hash('Admin@1234', 12);
   const managerPassword = await bcrypt.hash('Manager@1234', 12);
   const cashierPassword = await bcrypt.hash('cashier@1234', 12);
-  const storekeeperPassword = await bcrypt.hash('Storekeeper@1234', 12);
+  const storekeeperPassword = await bcrypt.hash('storekeeper@1234', 12);
   // Each PIN-login user gets their OWN unique PIN
   const yvonePin    = await bcrypt.hash('1111', 12);
   const denisePin   = await bcrypt.hash('2222', 12);
