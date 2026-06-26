@@ -12,11 +12,13 @@ import { getSocket } from '../../lib/socket';
 const PAYMENT_METHODS = ['CASH', 'MOBILE_MONEY', 'CREDIT_CARD', 'DEBIT_CARD', 'BANK_TRANSFER', 'CREDIT'];
 const BILL_TYPES = ['NORMAL', 'EBM'];
 
+// Merge step labels
+const MERGE_STEPS = ['source', 'destination', 'seat', 'confirm'];
+
 export default function CashierDashboard() {
   const [selectedBill, setSelectedBill] = useState(null);
   const [printBill, setPrintBill] = useState(null);
   const [payMethod, setPayMethod] = useState('CASH');
-  const [billType, setBillType] = useState('NORMAL');
   const [payAmount, setPayAmount] = useState('');
   const [creditInfo, setCreditInfo] = useState({ name: '', phone: '', role: '' });
   const [tableModal, setTableModal] = useState(null);
@@ -24,9 +26,10 @@ export default function CashierDashboard() {
 
   // Merge state
   const [mergeModal, setMergeModal] = useState(false);
+  const [mergeStep, setMergeStep] = useState('source'); // source | destination | seat | confirm
   const [mergeSource, setMergeSource] = useState(null);
   const [mergeDest, setMergeDest] = useState(null);
-  const [mergeConfirm, setMergeConfirm] = useState(false);
+  const [mergeDestSeat, setMergeDestSeat] = useState(null);
   const [mergeError, setMergeError] = useState('');
 
   const qc = useQueryClient();
@@ -76,15 +79,10 @@ export default function CashierDashboard() {
       qc.invalidateQueries(['tables']);
       qc.invalidateQueries(['bills']);
       qc.invalidateQueries(['orders', 'active']);
-      setMergeModal(false);
-      setMergeSource(null);
-      setMergeDest(null);
-      setMergeConfirm(false);
-      setMergeError('');
+      closeMergeModal();
     },
     onError: (err) => {
       setMergeError(err?.message || 'Merge failed. Please try again.');
-      setMergeConfirm(false);
     },
   });
 
@@ -111,18 +109,13 @@ export default function CashierDashboard() {
   const generatedBills = (bills?.data || []).filter(b => b.status === 'GENERATED');
   const paidToday = (bills?.data || []).filter(b => b.status === 'PAID' && new Date(b.updatedAt) > new Date(new Date().setHours(0, 0, 0, 0)));
   const totalToday = paidToday.reduce((s, b) => s + parseFloat(b.total), 0);
+  const occupiedTables = (tables?.data || []).filter(t => t.status === 'OCCUPIED' || t.status === 'WAITING_PAYMENT');
 
-  const handleGenBill = (orderId) => {
-    genBill.mutate({ orderId, billType: genBillType });
-  };
+  const handleGenBill = (orderId) => genBill.mutate({ orderId, billType: genBillType });
 
   const handleMarkPaid = () => {
     if (!selectedBill) return;
-    const payload = {
-      id: selectedBill.id,
-      method: payMethod,
-      amount: payAmount || selectedBill.total,
-    };
+    const payload = { id: selectedBill.id, method: payMethod, amount: payAmount || selectedBill.total };
     if (payMethod === 'CREDIT') {
       payload.creditCustomerName = creditInfo.name;
       payload.creditCustomerPhone = creditInfo.phone;
@@ -131,20 +124,52 @@ export default function CashierDashboard() {
     markPaid.mutate(payload);
   };
 
+  const closeMergeModal = () => {
+    setMergeModal(false);
+    setMergeStep('source');
+    setMergeSource(null);
+    setMergeDest(null);
+    setMergeDestSeat(null);
+    setMergeError('');
+  };
+
   const handleMergeConfirm = () => {
-    if (!mergeSource || !mergeDest) return;
+    if (!mergeSource || !mergeDest || !mergeDestSeat) return;
     mergeTables.mutate({
       sourceTableId: mergeSource.id,
       destinationTableId: mergeDest.id,
+      destinationSeatId: mergeDestSeat.id,
     });
   };
 
-  const occupiedTables = (tables?.data || []).filter(t => t.status === 'OCCUPIED' || t.status === 'WAITING_PAYMENT');
-
-  // For merge modal — source can be any occupied table,
-  // destination can be any occupied table that isn't the source
-  const mergeSourceOptions = occupiedTables;
-  const mergeDestOptions = occupiedTables.filter(t => t.id !== mergeSource?.id);
+  // Step indicator component
+  const StepIndicator = () => {
+    const steps = [
+      { key: 'source', label: 'Source' },
+      { key: 'destination', label: 'Destination' },
+      { key: 'seat', label: 'Seat' },
+      { key: 'confirm', label: 'Confirm' },
+    ];
+    const currentIdx = steps.findIndex(s => s.key === mergeStep);
+    return (
+      <div className="flex items-center gap-1 mb-5">
+        {steps.map((s, i) => (
+          <div key={s.key} className="flex items-center gap-1">
+            <div className={cn(
+              'w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center',
+              i < currentIdx ? 'bg-purple-500 text-white' :
+              i === currentIdx ? 'bg-purple-500 text-white ring-2 ring-purple-300/40' :
+              'bg-accent text-muted-foreground'
+            )}>
+              {i < currentIdx ? '✓' : i + 1}
+            </div>
+            <span className={cn('text-xs', i === currentIdx ? 'text-foreground font-semibold' : 'text-muted-foreground')}>{s.label}</span>
+            {i < steps.length - 1 && <span className="text-muted-foreground mx-1">→</span>}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -175,7 +200,7 @@ export default function CashierDashboard() {
         </span>
       </div>
 
-      {/* ── Occupied Tables Quick View ── */}
+      {/* ── Occupied Tables ── */}
       {occupiedTables.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
@@ -183,10 +208,9 @@ export default function CashierDashboard() {
               <Table2 className="w-5 h-5 text-primary" />
               <h3 className="font-semibold">Occupied Tables — Click to View & Manage</h3>
             </div>
-            {/* Merge Tables button — only show if 2+ occupied tables */}
             {occupiedTables.length >= 2 && (
               <button
-                onClick={() => { setMergeModal(true); setMergeSource(null); setMergeDest(null); setMergeConfirm(false); setMergeError(''); }}
+                onClick={() => { setMergeModal(true); setMergeStep('source'); }}
                 className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/40 text-purple-400 rounded-xl text-sm font-semibold transition-all"
               >
                 <GitMerge className="w-4 h-4" />
@@ -259,7 +283,7 @@ export default function CashierDashboard() {
       )}
 
       <div className="grid lg:grid-cols-2 gap-4">
-        {/* Served orders - generate bill */}
+        {/* Served orders */}
         <div className={cn('border rounded-xl p-5', billRequestedOrders.length > 0 ? 'bg-primary/5 border-primary/40' : 'bg-card border-border')}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold">Served Orders — Generate Bill</h3>
@@ -305,7 +329,7 @@ export default function CashierDashboard() {
           </div>
         </div>
 
-        {/* Generated bills - awaiting payment */}
+        {/* Generated bills */}
         <div className="bg-card border border-border rounded-xl p-5">
           <h3 className="font-semibold mb-4">Bills Awaiting Payment</h3>
           <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -344,13 +368,11 @@ export default function CashierDashboard() {
             <h3 className="font-semibold text-lg">Process Payment — {selectedBill.billNumber}</h3>
             <button onClick={() => setSelectedBill(null)} className="text-muted-foreground hover:text-foreground">✕</button>
           </div>
-
           <div className="bg-accent/50 rounded-lg p-4 space-y-2">
             <div className="flex justify-between text-sm"><span>Subtotal</span><span>{formatCurrency(selectedBill.subtotal)}</span></div>
             {parseFloat(selectedBill.discount) > 0 && <div className="flex justify-between text-sm text-green-400"><span>Discount</span><span>-{formatCurrency(selectedBill.discount)}</span></div>}
             <div className="flex justify-between font-bold text-lg pt-2 border-t border-border"><span>Total</span><span className="text-primary">{formatCurrency(selectedBill.total)}</span></div>
           </div>
-
           <div className="text-sm space-y-1 max-h-32 overflow-y-auto">
             {selectedBill.order?.items?.map(item => (
               <div key={item.id} className="flex justify-between">
@@ -359,7 +381,6 @@ export default function CashierDashboard() {
               </div>
             ))}
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2">Payment Method</label>
@@ -384,27 +405,20 @@ export default function CashierDashboard() {
               )}
             </div>
           </div>
-
           {payMethod === 'CREDIT' && (
             <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 space-y-3">
               <p className="text-sm font-semibold text-red-400">⚠️ Credit Sale — Customer Info Required</p>
               <div className="grid grid-cols-3 gap-3">
-                <input value={creditInfo.name} onChange={e => setCreditInfo(c => ({ ...c, name: e.target.value }))}
-                  placeholder="Customer Name*" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
-                <input value={creditInfo.phone} onChange={e => setCreditInfo(c => ({ ...c, phone: e.target.value }))}
-                  placeholder="Phone" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
-                <input value={creditInfo.role} onChange={e => setCreditInfo(c => ({ ...c, role: e.target.value }))}
-                  placeholder="Role/Position" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
+                <input value={creditInfo.name} onChange={e => setCreditInfo(c => ({ ...c, name: e.target.value }))} placeholder="Customer Name*" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
+                <input value={creditInfo.phone} onChange={e => setCreditInfo(c => ({ ...c, phone: e.target.value }))} placeholder="Phone" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
+                <input value={creditInfo.role} onChange={e => setCreditInfo(c => ({ ...c, role: e.target.value }))} placeholder="Role/Position" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
               </div>
             </div>
           )}
-
           <div className="flex gap-3">
-            <button
-              onClick={handleMarkPaid}
+            <button onClick={handleMarkPaid}
               disabled={markPaid.isPending || (!payAmount && payMethod !== 'CREDIT') || (payMethod === 'CREDIT' && !creditInfo.name)}
-              className="flex-1 py-4 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl text-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-            >
+              className="flex-1 py-4 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl text-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
               <CheckCircle className="w-5 h-5" />
               {markPaid.isPending ? 'Processing…' : `Mark PAID — ${formatCurrency(selectedBill.total)}`}
             </button>
@@ -427,7 +441,6 @@ export default function CashierDashboard() {
               </div>
               <button onClick={() => setTableModal(null)} className="p-1.5 hover:bg-accent rounded-lg"><X className="w-5 h-5" /></button>
             </div>
-
             <div className="flex-1 overflow-auto p-5 space-y-4">
               {tableLoading && <p className="text-sm text-muted-foreground text-center py-8">Loading table details…</p>}
               {tableDetail?.data?.seats?.map(seat => {
@@ -467,11 +480,8 @@ export default function CashierDashboard() {
                           </div>
                         </div>
                         {order.status === 'SERVED' && !order.bill && (
-                          <button
-                            onClick={() => handleGenBill(order.id)}
-                            disabled={genBill.isPending}
-                            className="mt-2 w-full py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl disabled:opacity-50"
-                          >
+                          <button onClick={() => handleGenBill(order.id)} disabled={genBill.isPending}
+                            className="mt-2 w-full py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl disabled:opacity-50">
                             Generate {genBillType} Bill
                           </button>
                         )}
@@ -497,103 +507,102 @@ export default function CashierDashboard() {
                 <GitMerge className="w-5 h-5 text-purple-400" />
                 <h3 className="font-bold text-lg">Merge Tables</h3>
               </div>
-              <button onClick={() => setMergeModal(false)} className="p-1.5 hover:bg-accent rounded-lg">
+              <button onClick={closeMergeModal} className="p-1.5 hover:bg-accent rounded-lg">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-5">
-              {!mergeConfirm ? (
-                <>
+            <div className="p-5">
+              <StepIndicator />
+
+              {/* Step 1: Pick source table */}
+              {mergeStep === 'source' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">Which table's orders do you want to move?</p>
+                  <div className="flex flex-wrap gap-2">
+                    {occupiedTables.map(table => (
+                      <button key={table.id}
+                        onClick={() => { setMergeSource(table); setMergeDest(null); setMergeDestSeat(null); setMergeStep('destination'); }}
+                        className={cn(
+                          'flex flex-col items-center justify-center w-20 h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105',
+                          mergeSource?.id === table.id
+                            ? 'border-purple-500 bg-purple-500/20 text-purple-300'
+                            : 'border-border hover:border-purple-500/50 bg-accent/50'
+                        )}>
+                        <span className="text-2xl">{table.name}</span>
+                        <span className="text-[9px] opacity-60 mt-0.5">{table.seats?.filter(s => s.isOccupied).length} occupied</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2: Pick destination table */}
+              {mergeStep === 'destination' && (
+                <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Move all open orders from one table into another. The source table will be freed.
+                    Move orders from <strong className="text-purple-400">Table {mergeSource?.name}</strong> into which table?
                   </p>
-
-                  {/* Source Table */}
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">Source Table <span className="text-muted-foreground font-normal">(orders will move FROM here)</span></label>
-                    <div className="flex flex-wrap gap-2">
-                      {mergeSourceOptions.map(table => (
-                        <button
-                          key={table.id}
-                          onClick={() => { setMergeSource(table); if (mergeDest?.id === table.id) setMergeDest(null); }}
-                          className={cn(
-                            'flex flex-col items-center justify-center w-16 h-16 rounded-xl border-2 font-bold text-sm transition-all',
-                            mergeSource?.id === table.id
-                              ? 'border-purple-500 bg-purple-500/20 text-purple-300'
-                              : 'border-border hover:border-purple-500/50 bg-accent/50'
-                          )}
-                        >
-                          <span className="text-xl">{table.name}</span>
-                          <span className="text-[9px] opacity-60">{table.status === 'WAITING_PAYMENT' ? '💳' : '🔴'}</span>
-                        </button>
-                      ))}
-                    </div>
+                  <div className="flex flex-wrap gap-2">
+                    {occupiedTables.filter(t => t.id !== mergeSource?.id).map(table => (
+                      <button key={table.id}
+                        onClick={() => { setMergeDest(table); setMergeDestSeat(null); setMergeStep('seat'); }}
+                        className={cn(
+                          'flex flex-col items-center justify-center w-20 h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105',
+                          mergeDest?.id === table.id
+                            ? 'border-green-500 bg-green-500/20 text-green-300'
+                            : 'border-border hover:border-green-500/50 bg-accent/50'
+                        )}>
+                        <span className="text-2xl">{table.name}</span>
+                        <span className="text-[9px] opacity-60 mt-0.5">{table.seats?.filter(s => s.isOccupied).length} occupied</span>
+                      </button>
+                    ))}
                   </div>
+                  <button onClick={() => setMergeStep('source')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
 
-                  {/* Destination Table */}
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">Destination Table <span className="text-muted-foreground font-normal">(orders will move INTO here)</span></label>
-                    {!mergeSource ? (
-                      <p className="text-sm text-muted-foreground italic">Select a source table first</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {mergeDestOptions.map(table => (
-                          <button
-                            key={table.id}
-                            onClick={() => setMergeDest(table)}
-                            className={cn(
-                              'flex flex-col items-center justify-center w-16 h-16 rounded-xl border-2 font-bold text-sm transition-all',
-                              mergeDest?.id === table.id
-                                ? 'border-green-500 bg-green-500/20 text-green-300'
-                                : 'border-border hover:border-green-500/50 bg-accent/50'
-                            )}
-                          >
-                            <span className="text-xl">{table.name}</span>
-                            <span className="text-[9px] opacity-60">{table.status === 'WAITING_PAYMENT' ? '💳' : '🔴'}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+              {/* Step 3: Pick destination seat */}
+              {mergeStep === 'seat' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Which seat on <strong className="text-green-400">Table {mergeDest?.name}</strong> should receive the orders?
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {mergeDest?.seats?.map(seat => (
+                      <button key={seat.id}
+                        onClick={() => { setMergeDestSeat(seat); setMergeStep('confirm'); }}
+                        className={cn(
+                          'flex flex-col items-center justify-center w-16 h-16 rounded-xl border-2 font-bold text-sm transition-all',
+                          mergeDestSeat?.id === seat.id
+                            ? 'border-green-500 bg-green-500/20 text-green-300'
+                            : seat.isOccupied
+                              ? 'border-red-500/50 bg-red-500/10 text-red-300 hover:border-green-500/50'
+                              : 'border-green-500/40 bg-green-500/5 text-green-300 hover:border-green-500'
+                        )}>
+                        <span className="text-sm">{seat.label}</span>
+                        <span className="text-[9px] mt-0.5 opacity-70">{seat.isOccupied ? '🔴 Occupied' : '🟢 Free'}</span>
+                      </button>
+                    ))}
                   </div>
+                  <p className="text-xs text-muted-foreground">You can pick an occupied seat — the orders will be added to it.</p>
+                  <button onClick={() => setMergeStep('destination')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
 
-                  {/* Arrow preview */}
-                  {mergeSource && mergeDest && (
-                    <div className="bg-accent/50 border border-border rounded-xl p-4 flex items-center justify-center gap-4 text-sm font-semibold">
-                      <span className="px-3 py-1.5 bg-purple-500/20 text-purple-300 rounded-lg">Table {mergeSource.name}</span>
+              {/* Step 4: Confirm */}
+              {mergeStep === 'confirm' && (
+                <div className="space-y-4">
+                  <div className="bg-accent/50 border border-border rounded-xl p-4 space-y-3 text-sm">
+                    <div className="flex items-center justify-center gap-4 font-semibold text-base">
+                      <span className="px-3 py-1.5 bg-purple-500/20 text-purple-300 rounded-lg">Table {mergeSource?.name}</span>
                       <span className="text-muted-foreground text-lg">→</span>
-                      <span className="px-3 py-1.5 bg-green-500/20 text-green-300 rounded-lg">Table {mergeDest.name}</span>
+                      <span className="px-3 py-1.5 bg-green-500/20 text-green-300 rounded-lg">Table {mergeDest?.name} • {mergeDestSeat?.label}</span>
                     </div>
-                  )}
-
-                  {mergeError && (
-                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{mergeError}</p>
-                  )}
-
-                  <div className="flex gap-3 pt-2">
-                    <button onClick={() => setMergeModal(false)}
-                      className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold transition-all">
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => setMergeConfirm(true)}
-                      disabled={!mergeSource || !mergeDest}
-                      className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-bold transition-all disabled:opacity-40"
-                    >
-                      Review & Confirm
-                    </button>
-                  </div>
-                </>
-              ) : (
-                /* Confirmation step */
-                <>
-                  <div className="bg-orange-500/5 border border-orange-500/30 rounded-xl p-4 space-y-3">
-                    <p className="text-sm font-semibold text-orange-400">⚠️ Please confirm this action</p>
-                    <div className="text-sm space-y-1">
-                      <p><span className="text-muted-foreground">Source:</span> <strong>Table {mergeSource.name}</strong> — all open orders will be moved</p>
-                      <p><span className="text-muted-foreground">Destination:</span> <strong>Table {mergeDest.name}</strong> — orders will be added here</p>
-                      <p><span className="text-muted-foreground">After merge:</span> Table {mergeSource.name} will become <span className="text-green-400 font-semibold">Available</span></p>
-                      <p><span className="text-muted-foreground">KDS:</span> Kitchen & Bar screens will update immediately for in-progress items</p>
+                    <div className="pt-2 space-y-1 text-muted-foreground">
+                      <p>• All open orders from <strong className="text-foreground">Table {mergeSource?.name}</strong> will move to <strong className="text-foreground">Table {mergeDest?.name} — Seat {mergeDestSeat?.label}</strong></p>
+                      <p>• Table {mergeSource?.name} will become <span className="text-green-400 font-semibold">Available</span></p>
+                      <p>• Kitchen & Bar screens will update immediately</p>
                     </div>
                   </div>
 
@@ -602,8 +611,7 @@ export default function CashierDashboard() {
                   )}
 
                   <div className="flex gap-3">
-                    <button onClick={() => setMergeConfirm(false)}
-                      className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold">
+                    <button onClick={() => setMergeStep('seat')} className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold">
                       ← Back
                     </button>
                     <button
@@ -612,17 +620,16 @@ export default function CashierDashboard() {
                       className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       <GitMerge className="w-4 h-4" />
-                      {mergeTables.isPending ? 'Merging…' : `Merge Table ${mergeSource.name} → ${mergeDest.name}`}
+                      {mergeTables.isPending ? 'Merging…' : 'Confirm Merge'}
                     </button>
                   </div>
-                </>
+                </div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Print Modal */}
       {printBill && <PrintBill bill={printBill} onClose={() => setPrintBill(null)} />}
     </div>
   );
