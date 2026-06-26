@@ -4,7 +4,7 @@ import { formatCurrency, formatDateTime, cn } from '../../lib/utils';
 import Badge from '../../components/shared/Badge';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
-import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users } from 'lucide-react';
+import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge } from 'lucide-react';
 import PrintBill from '../../components/shared/PrintBill';
 import { useState, useEffect } from 'react';
 import { getSocket } from '../../lib/socket';
@@ -19,8 +19,16 @@ export default function CashierDashboard() {
   const [billType, setBillType] = useState('NORMAL');
   const [payAmount, setPayAmount] = useState('');
   const [creditInfo, setCreditInfo] = useState({ name: '', phone: '', role: '' });
-  const [tableModal, setTableModal] = useState(null); // table detail
-  const [genBillType, setGenBillType] = useState('NORMAL'); // for generate bill modal
+  const [tableModal, setTableModal] = useState(null);
+  const [genBillType, setGenBillType] = useState('NORMAL');
+
+  // Merge state
+  const [mergeModal, setMergeModal] = useState(false);
+  const [mergeSource, setMergeSource] = useState(null);
+  const [mergeDest, setMergeDest] = useState(null);
+  const [mergeConfirm, setMergeConfirm] = useState(false);
+  const [mergeError, setMergeError] = useState('');
+
   const qc = useQueryClient();
 
   const { data: bills } = useQuery({ queryKey: ['bills'], queryFn: () => api.get('/bills'), refetchInterval: 10000 });
@@ -46,7 +54,11 @@ export default function CashierDashboard() {
 
   const genBill = useMutation({
     mutationFn: (data) => api.post('/bills', data),
-    onSuccess: () => { qc.invalidateQueries(['bills']); qc.invalidateQueries(['orders', 'active']); qc.invalidateQueries(['table-detail', tableModal?.id]); },
+    onSuccess: () => {
+      qc.invalidateQueries(['bills']);
+      qc.invalidateQueries(['orders', 'active']);
+      qc.invalidateQueries(['table-detail', tableModal?.id]);
+    },
   });
 
   const markPaid = useMutation({
@@ -58,12 +70,39 @@ export default function CashierDashboard() {
     },
   });
 
+  const mergeTables = useMutation({
+    mutationFn: (data) => api.post('/orders/merge', data),
+    onSuccess: () => {
+      qc.invalidateQueries(['tables']);
+      qc.invalidateQueries(['bills']);
+      qc.invalidateQueries(['orders', 'active']);
+      setMergeModal(false);
+      setMergeSource(null);
+      setMergeDest(null);
+      setMergeConfirm(false);
+      setMergeError('');
+    },
+    onError: (err) => {
+      setMergeError(err?.message || 'Merge failed. Please try again.');
+      setMergeConfirm(false);
+    },
+  });
+
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
     socket.on('bill:generated', () => qc.invalidateQueries(['bills']));
     socket.on('order:served', () => qc.invalidateQueries(['orders', 'active']));
-    return () => { socket.off('bill:generated'); socket.off('order:served'); };
+    socket.on('tables:merged', () => {
+      qc.invalidateQueries(['tables']);
+      qc.invalidateQueries(['bills']);
+      qc.invalidateQueries(['orders', 'active']);
+    });
+    return () => {
+      socket.off('bill:generated');
+      socket.off('order:served');
+      socket.off('tables:merged');
+    };
   }, []);
 
   const allServed = orders?.data || [];
@@ -92,8 +131,20 @@ export default function CashierDashboard() {
     markPaid.mutate(payload);
   };
 
-  // Get occupied tables for table view
+  const handleMergeConfirm = () => {
+    if (!mergeSource || !mergeDest) return;
+    mergeTables.mutate({
+      sourceTableId: mergeSource.id,
+      destinationTableId: mergeDest.id,
+    });
+  };
+
   const occupiedTables = (tables?.data || []).filter(t => t.status === 'OCCUPIED' || t.status === 'WAITING_PAYMENT');
+
+  // For merge modal — source can be any occupied table,
+  // destination can be any occupied table that isn't the source
+  const mergeSourceOptions = occupiedTables;
+  const mergeDestOptions = occupiedTables.filter(t => t.id !== mergeSource?.id);
 
   return (
     <div className="space-y-6">
@@ -106,7 +157,7 @@ export default function CashierDashboard() {
         <StatCard title="Bill Requests" value={billRequestedOrders.length} icon={Clock} color={billRequestedOrders.length > 0 ? 'primary' : 'blue'} subtitle={billRequestedOrders.length > 0 ? '⚡ Action needed' : 'No requests'} />
       </div>
 
-      {/* Bill Type selector (for generation) */}
+      {/* Bill Type selector */}
       <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
         <span className="text-sm font-semibold text-muted-foreground">Default Bill Type:</span>
         <div className="flex gap-2">
@@ -127,9 +178,21 @@ export default function CashierDashboard() {
       {/* ── Occupied Tables Quick View ── */}
       {occupiedTables.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Table2 className="w-5 h-5 text-primary" />
-            <h3 className="font-semibold">Occupied Tables — Click to View & Manage</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Table2 className="w-5 h-5 text-primary" />
+              <h3 className="font-semibold">Occupied Tables — Click to View & Manage</h3>
+            </div>
+            {/* Merge Tables button — only show if 2+ occupied tables */}
+            {occupiedTables.length >= 2 && (
+              <button
+                onClick={() => { setMergeModal(true); setMergeSource(null); setMergeDest(null); setMergeConfirm(false); setMergeError(''); }}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/40 text-purple-400 rounded-xl text-sm font-semibold transition-all"
+              >
+                <GitMerge className="w-4 h-4" />
+                Merge Tables
+              </button>
+            )}
           </div>
           <div className="flex flex-wrap gap-3">
             {occupiedTables.map(table => (
@@ -322,7 +385,6 @@ export default function CashierDashboard() {
             </div>
           </div>
 
-          {/* Credit customer info */}
           {payMethod === 'CREDIT' && (
             <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 space-y-3">
               <p className="text-sm font-semibold text-red-400">⚠️ Credit Sale — Customer Info Required</p>
@@ -404,10 +466,9 @@ export default function CashierDashboard() {
                             <span className="text-primary">{formatCurrency(order.items?.reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0))}</span>
                           </div>
                         </div>
-                        {/* Generate bill button if no bill yet and served */}
                         {order.status === 'SERVED' && !order.bill && (
                           <button
-                            onClick={() => { handleGenBill(order.id); }}
+                            onClick={() => handleGenBill(order.id)}
                             disabled={genBill.isPending}
                             className="mt-2 w-full py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl disabled:opacity-50"
                           >
@@ -421,6 +482,140 @@ export default function CashierDashboard() {
               })}
               {!tableLoading && tableDetail?.data?.seats?.every(s => !s.isOccupied && (s.orders?.length === 0)) && (
                 <p className="text-sm text-muted-foreground text-center py-8">No active orders at this table</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Merge Tables Modal ── */}
+      {mergeModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-lg shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <div className="flex items-center gap-3">
+                <GitMerge className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-lg">Merge Tables</h3>
+              </div>
+              <button onClick={() => setMergeModal(false)} className="p-1.5 hover:bg-accent rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {!mergeConfirm ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Move all open orders from one table into another. The source table will be freed.
+                  </p>
+
+                  {/* Source Table */}
+                  <div>
+                    <label className="block text-sm font-semibold mb-2">Source Table <span className="text-muted-foreground font-normal">(orders will move FROM here)</span></label>
+                    <div className="flex flex-wrap gap-2">
+                      {mergeSourceOptions.map(table => (
+                        <button
+                          key={table.id}
+                          onClick={() => { setMergeSource(table); if (mergeDest?.id === table.id) setMergeDest(null); }}
+                          className={cn(
+                            'flex flex-col items-center justify-center w-16 h-16 rounded-xl border-2 font-bold text-sm transition-all',
+                            mergeSource?.id === table.id
+                              ? 'border-purple-500 bg-purple-500/20 text-purple-300'
+                              : 'border-border hover:border-purple-500/50 bg-accent/50'
+                          )}
+                        >
+                          <span className="text-xl">{table.name}</span>
+                          <span className="text-[9px] opacity-60">{table.status === 'WAITING_PAYMENT' ? '💳' : '🔴'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Destination Table */}
+                  <div>
+                    <label className="block text-sm font-semibold mb-2">Destination Table <span className="text-muted-foreground font-normal">(orders will move INTO here)</span></label>
+                    {!mergeSource ? (
+                      <p className="text-sm text-muted-foreground italic">Select a source table first</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {mergeDestOptions.map(table => (
+                          <button
+                            key={table.id}
+                            onClick={() => setMergeDest(table)}
+                            className={cn(
+                              'flex flex-col items-center justify-center w-16 h-16 rounded-xl border-2 font-bold text-sm transition-all',
+                              mergeDest?.id === table.id
+                                ? 'border-green-500 bg-green-500/20 text-green-300'
+                                : 'border-border hover:border-green-500/50 bg-accent/50'
+                            )}
+                          >
+                            <span className="text-xl">{table.name}</span>
+                            <span className="text-[9px] opacity-60">{table.status === 'WAITING_PAYMENT' ? '💳' : '🔴'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Arrow preview */}
+                  {mergeSource && mergeDest && (
+                    <div className="bg-accent/50 border border-border rounded-xl p-4 flex items-center justify-center gap-4 text-sm font-semibold">
+                      <span className="px-3 py-1.5 bg-purple-500/20 text-purple-300 rounded-lg">Table {mergeSource.name}</span>
+                      <span className="text-muted-foreground text-lg">→</span>
+                      <span className="px-3 py-1.5 bg-green-500/20 text-green-300 rounded-lg">Table {mergeDest.name}</span>
+                    </div>
+                  )}
+
+                  {mergeError && (
+                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{mergeError}</p>
+                  )}
+
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setMergeModal(false)}
+                      className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold transition-all">
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => setMergeConfirm(true)}
+                      disabled={!mergeSource || !mergeDest}
+                      className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-bold transition-all disabled:opacity-40"
+                    >
+                      Review & Confirm
+                    </button>
+                  </div>
+                </>
+              ) : (
+                /* Confirmation step */
+                <>
+                  <div className="bg-orange-500/5 border border-orange-500/30 rounded-xl p-4 space-y-3">
+                    <p className="text-sm font-semibold text-orange-400">⚠️ Please confirm this action</p>
+                    <div className="text-sm space-y-1">
+                      <p><span className="text-muted-foreground">Source:</span> <strong>Table {mergeSource.name}</strong> — all open orders will be moved</p>
+                      <p><span className="text-muted-foreground">Destination:</span> <strong>Table {mergeDest.name}</strong> — orders will be added here</p>
+                      <p><span className="text-muted-foreground">After merge:</span> Table {mergeSource.name} will become <span className="text-green-400 font-semibold">Available</span></p>
+                      <p><span className="text-muted-foreground">KDS:</span> Kitchen & Bar screens will update immediately for in-progress items</p>
+                    </div>
+                  </div>
+
+                  {mergeError && (
+                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{mergeError}</p>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button onClick={() => setMergeConfirm(false)}
+                      className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold">
+                      ← Back
+                    </button>
+                    <button
+                      onClick={handleMergeConfirm}
+                      disabled={mergeTables.isPending}
+                      className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <GitMerge className="w-4 h-4" />
+                      {mergeTables.isPending ? 'Merging…' : `Merge Table ${mergeSource.name} → ${mergeDest.name}`}
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           </div>
