@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { formatCurrency, cn } from '../../lib/utils';
-import { Plus, X, ShoppingCart, CheckCircle, Bell, Printer, Eye } from 'lucide-react';
+import { Plus, X, ShoppingCart, CheckCircle, Bell, Printer, Eye, Lock } from 'lucide-react';
 import Badge from '../../components/shared/Badge';
 import { getSocket } from '../../lib/socket';
 import { motion, AnimatePresence } from 'framer-motion';
 import PrintBill from '../../components/shared/PrintBill';
+import { useAuthStore } from '../../store/authStore';
 
 export default function WaiterDashboard() {
-  const [step, setStep] = useState('tables'); // tables | seats | menu
+  const [step, setStep] = useState('tables');
   const [selectedTable, setSelectedTable] = useState(null);
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [cart, setCart] = useState([]);
@@ -18,6 +19,8 @@ export default function WaiterDashboard() {
   const [orderNotes, setOrderNotes] = useState('');
   const [previewBill, setPreviewBill] = useState(null);
   const qc = useQueryClient();
+
+  const { user: currentUser } = useAuthStore();
 
   const { data: tables } = useQuery({ queryKey: ['tables'], queryFn: () => api.get('/tables'), refetchInterval: 15000 });
   const { data: categories } = useQuery({ queryKey: ['categories', menuType], queryFn: () => api.get(`/menu/categories?type=${menuType}`) });
@@ -37,11 +40,29 @@ export default function WaiterDashboard() {
     refetchInterval: 10000,
   });
 
+  // Fetch all open orders for the selected table to check seat ownership
+  const { data: tableOrdersData } = useQuery({
+    queryKey: ['table-orders', selectedTable?.id],
+    queryFn: () => api.get(`/orders?tableId=${selectedTable?.id}&status=PENDING,PREPARING,READY,SERVED`),
+    enabled: !!(selectedTable?.id && step === 'seats'),
+  });
+  const tableOrders = tableOrdersData?.data || [];
+
+  // Get the open order for a specific seat (ignoring paid bills)
+  const getSeatOrder = (seatId) =>
+    tableOrders.find(o => o.seatId === seatId && o.bill?.status !== 'PAID');
+
+  // Check if current waiter owns the order on this seat
+  const isMySeat = (seatId) => {
+    const order = getSeatOrder(seatId);
+    return order ? order.waiterId === currentUser?.id : false;
+  };
+
   const { data: seatOrderData } = useQuery({
     queryKey: ['seat-order', selectedTable?.id, selectedSeat?.id],
     queryFn: () => api.get(`/orders?tableId=${selectedTable?.id}&status=PENDING,PREPARING,READY,SERVED`),
     enabled: !!(selectedSeat?.isOccupied && selectedTable?.id && selectedSeat?.id),
-    select: (data) => (data?.data || []).find(o => o.seatId === selectedSeat?.id && !o.bill),
+    select: (data) => (data?.data || []).find(o => o.seatId === selectedSeat?.id && o.bill?.status !== 'PAID'),
   });
 
   const createOrder = useMutation({
@@ -49,6 +70,7 @@ export default function WaiterDashboard() {
     onSuccess: () => {
       qc.invalidateQueries(['tables']);
       qc.invalidateQueries(['my-orders']);
+      qc.invalidateQueries(['table-orders', selectedTable?.id]);
       setCart([]); setStep('tables');
       setSelectedTable(null); setSelectedSeat(null); setOrderNotes('');
     },
@@ -120,14 +142,12 @@ export default function WaiterDashboard() {
   );
 
   const handleSeatClick = (seat) => {
+    if (seat.isOccupied && !isMySeat(seat.id)) return; // blocked
     setSelectedSeat(seat);
     setStep('menu');
     setActiveCategory(null);
   };
 
-  // Helper: get table card style based on status
-  // FIX: WAITING_PAYMENT is no longer disabled — a seat on that table may still
-  // need to place a new order. The orange colour signals "some seat waiting for payment".
   const getTableCardClass = (table) => {
     const base = 'table-card h-32';
     switch (table.status) {
@@ -136,7 +156,6 @@ export default function WaiterDashboard() {
       case 'OCCUPIED':
         return cn(base, 'border-red-500/40 bg-red-500/5 hover:bg-red-500/10 hover:border-red-500');
       case 'WAITING_PAYMENT':
-        // FIX: was disabled + cursor-not-allowed. Now just styled orange but clickable.
         return cn(base, 'border-orange-500/40 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500');
       default:
         return cn(base, 'border-border');
@@ -145,10 +164,8 @@ export default function WaiterDashboard() {
 
   return (
     <div className="flex gap-4 h-[calc(100vh-112px)]">
-      {/* Left: Main content */}
       <div className="flex-1 overflow-auto space-y-4">
 
-        {/* Ready order alerts */}
         {readyOrders.length > 0 && (
           <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4">
             <p className="font-semibold text-green-400 flex items-center gap-2 mb-2">
@@ -164,7 +181,6 @@ export default function WaiterDashboard() {
           </div>
         )}
 
-        {/* Step: Tables */}
         {step === 'tables' && (
           <div>
             <h2 className="text-xl font-bold mb-4">Select Table</h2>
@@ -174,7 +190,6 @@ export default function WaiterDashboard() {
                   key={table.id}
                   onClick={() => { setSelectedTable(table); setStep('seats'); }}
                   className={getTableCardClass(table)}
-                  // FIX: removed disabled={table.status === 'WAITING_PAYMENT'}
                 >
                   <span className="text-3xl font-black">{table.name}</span>
                   <Badge status={table.status} />
@@ -188,7 +203,6 @@ export default function WaiterDashboard() {
           </div>
         )}
 
-        {/* Step: Seats */}
         {step === 'seats' && selectedTable && (
           <div>
             <div className="flex items-center gap-3 mb-4">
@@ -196,29 +210,38 @@ export default function WaiterDashboard() {
               <h2 className="text-xl font-bold">Table {selectedTable.name} — Select Seat</h2>
             </div>
             <p className="text-sm text-muted-foreground mb-3">
-              🟢 Available seat — 🔴 Occupied seat (click to add more items)
+              🟢 Available — 🔴 Your occupied seat (+ADD) — 🔒 Another waiter's seat
             </p>
             <div className="flex flex-wrap gap-3">
-              {selectedTable.seats?.map(seat => (
-                <button
-                  key={seat.id}
-                  onClick={() => handleSeatClick(seat)}
-                  className={cn(
-                    'w-16 h-16 rounded-xl font-bold text-sm border-2 transition-all',
-                    seat.isOccupied
-                      ? 'border-red-500/60 bg-red-500/10 text-red-300 hover:bg-red-500/20'
-                      : 'border-green-500/50 bg-green-500/5 text-green-300 hover:bg-green-500/15 hover:border-green-400'
-                  )}
-                >
-                  {seat.label}
-                  {seat.isOccupied && <div className="text-[9px] mt-0.5 text-red-400">+ADD</div>}
-                </button>
-              ))}
+              {selectedTable.seats?.map(seat => {
+                const occupied = seat.isOccupied;
+                const mine = occupied && isMySeat(seat.id);
+                const locked = occupied && !mine;
+
+                return (
+                  <button
+                    key={seat.id}
+                    onClick={() => handleSeatClick(seat)}
+                    disabled={locked}
+                    className={cn(
+                      'w-16 h-16 rounded-xl font-bold text-sm border-2 transition-all',
+                      locked
+                        ? 'border-gray-500/30 bg-gray-500/10 text-gray-500 cursor-not-allowed opacity-50'
+                        : mine
+                          ? 'border-red-500/60 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+                          : 'border-green-500/50 bg-green-500/5 text-green-300 hover:bg-green-500/15 hover:border-green-400'
+                    )}
+                  >
+                    {seat.label}
+                    {mine && <div className="text-[9px] mt-0.5 text-red-400">+ADD</div>}
+                    {locked && <div className="text-[9px] mt-0.5"><Lock className="w-2.5 h-2.5 mx-auto" /></div>}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Step: Menu */}
         {step === 'menu' && (
           <div>
             <div className="flex items-center gap-3 mb-4">
@@ -286,7 +309,6 @@ export default function WaiterDashboard() {
         )}
       </div>
 
-      {/* Right: Cart (on menu) OR Orders panel */}
       {step === 'menu' ? (
         <div className="w-80 bg-card border border-border rounded-xl flex flex-col h-full">
           <div className="p-4 border-b border-border flex items-center gap-2">
