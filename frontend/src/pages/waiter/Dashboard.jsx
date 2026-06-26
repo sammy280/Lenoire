@@ -16,7 +16,7 @@ export default function WaiterDashboard() {
   const [activeCategory, setActiveCategory] = useState(null);
   const [menuType, setMenuType] = useState('FOOD');
   const [orderNotes, setOrderNotes] = useState('');
-  const [previewBill, setPreviewBill] = useState(null); // for bill preview modal
+  const [previewBill, setPreviewBill] = useState(null);
   const qc = useQueryClient();
 
   const { data: tables } = useQuery({ queryKey: ['tables'], queryFn: () => api.get('/tables'), refetchInterval: 15000 });
@@ -37,7 +37,6 @@ export default function WaiterDashboard() {
     refetchInterval: 10000,
   });
 
-  // Fetch existing active order for selected seat
   const { data: seatOrderData } = useQuery({
     queryKey: ['seat-order', selectedTable?.id, selectedSeat?.id],
     queryFn: () => api.get(`/orders?tableId=${selectedTable?.id}&status=PENDING,PREPARING,READY,SERVED`),
@@ -57,7 +56,11 @@ export default function WaiterDashboard() {
 
   const markServed = useMutation({
     mutationFn: (orderId) => api.patch(`/orders/${orderId}/served`),
-    onSuccess: () => { qc.invalidateQueries(['my-orders']); qc.invalidateQueries(['my-served-orders']); qc.invalidateQueries(['tables']); },
+    onSuccess: () => {
+      qc.invalidateQueries(['my-orders']);
+      qc.invalidateQueries(['my-served-orders']);
+      qc.invalidateQueries(['tables']);
+    },
   });
 
   const requestBill = useMutation({
@@ -100,7 +103,6 @@ export default function WaiterDashboard() {
     });
   };
 
-  // Build a preview bill object from a served order
   const buildPreview = (order) => {
     const items = order.items || [];
     const subtotal = items.reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0);
@@ -117,11 +119,28 @@ export default function WaiterDashboard() {
     o.status !== 'SERVED'
   );
 
-  // Seat click handler — allow re-order on occupied seats
   const handleSeatClick = (seat) => {
     setSelectedSeat(seat);
     setStep('menu');
     setActiveCategory(null);
+  };
+
+  // Helper: get table card style based on status
+  // FIX: WAITING_PAYMENT is no longer disabled — a seat on that table may still
+  // need to place a new order. The orange colour signals "some seat waiting for payment".
+  const getTableCardClass = (table) => {
+    const base = 'table-card h-32';
+    switch (table.status) {
+      case 'AVAILABLE':
+        return cn(base, 'border-green-500/40 bg-green-500/5 hover:bg-green-500/10 hover:border-green-500');
+      case 'OCCUPIED':
+        return cn(base, 'border-red-500/40 bg-red-500/5 hover:bg-red-500/10 hover:border-red-500');
+      case 'WAITING_PAYMENT':
+        // FIX: was disabled + cursor-not-allowed. Now just styled orange but clickable.
+        return cn(base, 'border-orange-500/40 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500');
+      default:
+        return cn(base, 'border-border');
+    }
   };
 
   return (
@@ -154,17 +173,14 @@ export default function WaiterDashboard() {
                 <button
                   key={table.id}
                   onClick={() => { setSelectedTable(table); setStep('seats'); }}
-                  className={cn(
-                    'table-card h-32',
-                    table.status === 'AVAILABLE' ? 'border-green-500/40 bg-green-500/5 hover:bg-green-500/10 hover:border-green-500' :
-                    table.status === 'OCCUPIED' ? 'border-red-500/40 bg-red-500/5 hover:bg-red-500/10 hover:border-red-500' :
-                    table.status === 'WAITING_PAYMENT' ? 'border-orange-500/40 bg-orange-500/5 cursor-not-allowed opacity-60' :
-                    'border-border'
-                  )}
-                  disabled={table.status === 'WAITING_PAYMENT'}
+                  className={getTableCardClass(table)}
+                  // FIX: removed disabled={table.status === 'WAITING_PAYMENT'}
                 >
                   <span className="text-3xl font-black">{table.name}</span>
                   <Badge status={table.status} />
+                  {table.status === 'WAITING_PAYMENT' && (
+                    <span className="text-[10px] text-orange-400 font-semibold">⏳ Awaiting payment on a seat</span>
+                  )}
                   <span className="text-xs text-muted-foreground">{table.seats?.length} seats</span>
                 </button>
               ))}
@@ -215,7 +231,6 @@ export default function WaiterDashboard() {
               )}
             </div>
 
-            {/* Food / Drink toggle */}
             <div className="flex gap-2 mb-4">
               {['FOOD', 'DRINK'].map(t => (
                 <button key={t} onClick={() => { setMenuType(t); setActiveCategory(null); }}
@@ -227,7 +242,6 @@ export default function WaiterDashboard() {
               ))}
             </div>
 
-            {/* Categories */}
             <div className="flex flex-wrap gap-2 mb-4">
               {(categories?.data || []).map(cat => (
                 <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
@@ -241,7 +255,6 @@ export default function WaiterDashboard() {
               ))}
             </div>
 
-            {/* Products grid */}
             {activeCategory && (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {(products?.data || []).map(product => {
@@ -282,7 +295,6 @@ export default function WaiterDashboard() {
             <span className="ml-auto text-sm text-muted-foreground">{cart.length} new</span>
           </div>
 
-          {/* Existing order items (for occupied seats) */}
           {selectedSeat?.isOccupied && seatOrderData && (
             <div className="border-b border-border bg-accent/30 p-3 max-h-44 overflow-auto">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
@@ -351,7 +363,6 @@ export default function WaiterDashboard() {
           </div>
           <div className="flex-1 overflow-auto p-3 space-y-3">
 
-            {/* Active orders */}
             {(myOrders?.data || []).map(order => {
               const kitchenReady = !order.kitchenOrder || order.kitchenOrder?.status === 'READY';
               const barReady = !order.barOrder || order.barOrder?.status === 'READY';
@@ -408,7 +419,6 @@ export default function WaiterDashboard() {
               </div>
             )}
 
-            {/* Served orders section */}
             {(servedOrders?.data || []).length > 0 && (
               <>
                 <div className="pt-2 pb-1 px-1">
@@ -440,7 +450,6 @@ export default function WaiterDashboard() {
                         </div>
                       )}
 
-                      {/* Bill preview button — shows customer what they owe */}
                       <button
                         onClick={() => setPreviewBill(buildPreview(order))}
                         className="w-full py-1.5 bg-accent hover:bg-border border border-border rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
@@ -469,7 +478,6 @@ export default function WaiterDashboard() {
         </div>
       )}
 
-      {/* Bill Preview Modal */}
       {previewBill && (
         <PrintBill
           bill={previewBill}

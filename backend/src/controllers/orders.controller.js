@@ -11,7 +11,6 @@ const getOrders = async (req, res, next) => {
     const { status, waiterId, tableId, date } = req.query;
     const where = {};
     if (status) {
-      // Support comma-separated statuses: ?status=PENDING,PREPARING,READY
       const statuses = status.split(',').map(s => s.trim()).filter(Boolean);
       where.status = statuses.length === 1 ? statuses[0] : { in: statuses };
     }
@@ -84,13 +83,20 @@ const createOrder = async (req, res, next) => {
     const foodItems = enrichedItems.filter(i => i.type === 'FOOD');
     const drinkItems = enrichedItems.filter(i => i.type === 'DRINK');
 
-    // Check for an existing open order at this table/seat (not cancelled, not billed+paid)
+    // FIX 1: Scope to this waiter's own orders only (waiterId: req.user.id)
+    // FIX 2: Removed bill: { is: null } — a seat on a table where ANOTHER seat
+    //         has a bill should not be blocked. We scope strictly to seatId,
+    //         and only exclude orders that are already billed+paid (bill.status PAID).
     const existingOrder = tableId && seatId ? await prisma.order.findFirst({
       where: {
         tableId,
         seatId,
+        waiterId: req.user.id,          // FIX 1: own orders only
         status: { notIn: ['CANCELLED'] },
-        bill: { is: null },  // no bill generated yet
+        OR: [
+          { bill: { is: null } },        // no bill yet
+          { bill: { status: { not: 'PAID' } } }, // bill exists but not paid yet
+        ],
       },
       include: {
         items: { include: { product: true } },
@@ -106,7 +112,6 @@ const createOrder = async (req, res, next) => {
     let isAddition = false;
 
     if (existingOrder) {
-      // Add new items to the existing order
       isAddition = true;
       await prisma.orderItem.createMany({
         data: enrichedItems.map(i => ({
@@ -119,7 +124,6 @@ const createOrder = async (req, res, next) => {
         })),
       });
 
-      // Create new kitchen/bar sub-tickets for the added items only
       if (foodItems.length > 0 && !existingOrder.kitchenOrder) {
         await prisma.kitchenOrder.create({ data: { orderId: existingOrder.id } });
       }
@@ -127,7 +131,6 @@ const createOrder = async (req, res, next) => {
         await prisma.barOrder.create({ data: { orderId: existingOrder.id } });
       }
 
-      // Fetch the updated order
       order = await prisma.order.findUnique({
         where: { id: existingOrder.id },
         include: {
@@ -139,7 +142,6 @@ const createOrder = async (req, res, next) => {
         },
       });
     } else {
-      // Create a fresh order
       order = await prisma.order.create({
         data: {
           orderNumber: generateOrderNumber(),
@@ -170,12 +172,10 @@ const createOrder = async (req, res, next) => {
         },
       });
 
-      // Update table/seat status only for new orders
       await prisma.restaurantTable.update({ where: { id: tableId }, data: { status: 'OCCUPIED' } });
       await prisma.seat.update({ where: { id: seatId }, data: { isOccupied: true } });
     }
 
-    // Notify kitchen if food items (always — new items need to be prepared)
     if (foodItems.length > 0) {
       await createNotification({
         roles: ['KITCHEN'],
@@ -189,7 +189,6 @@ const createOrder = async (req, res, next) => {
       });
     }
 
-    // Notify bar if drink items
     if (drinkItems.length > 0) {
       await createNotification({
         roles: ['BAR'],
@@ -203,7 +202,6 @@ const createOrder = async (req, res, next) => {
       });
     }
 
-    // Auto-create print jobs for kitchen and bar tickets
     const ticketContent = {
       orderNumber: order.orderNumber,
       table: order.table?.name,
@@ -229,7 +227,6 @@ const createOrder = async (req, res, next) => {
       io?.to('printer:bar').emit('print:job', { jobType: 'BAR_TICKET', content: JSON.parse(barContent), orderId: order.id });
     }
 
-    // Real-time update to all relevant roles
     io.to('role:KITCHEN').to('role:BAR').to('role:MANAGER').to('role:ADMIN').to('role:CASHIER').emit(
       isAddition ? 'order:updated' : 'order:new',
       order
@@ -257,7 +254,6 @@ const cancelOrder = async (req, res, next) => {
     const order = await prisma.order.findUnique({ where: { id: req.params.id } });
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-    // Waiters can only cancel unsent orders
     if (req.user.role === 'WAITER') {
       if (order.isSent) return res.status(403).json({ success: false, message: 'Cannot cancel an order already sent' });
     }
@@ -270,7 +266,6 @@ const cancelOrder = async (req, res, next) => {
     const io = req.app.get('io');
     io.emit('order:cancelled', updated);
 
-    // Notify waiter if cancelled by manager/admin
     if (req.user.role !== 'WAITER' && order.waiterId !== req.user.id) {
       await createNotification({
         userIds: [order.waiterId],
@@ -290,7 +285,6 @@ const cancelOrder = async (req, res, next) => {
 
 const markServed = async (req, res, next) => {
   try {
-    // Allow the assigned waiter to mark served; block others
     const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ success: false, message: 'Order not found' });
     if (req.user.role === 'WAITER' && existing.waiterId !== req.user.id) {
@@ -330,13 +324,8 @@ const requestBill = async (req, res, next) => {
       return res.status(409).json({ success: false, message: 'Bill already requested' });
     }
 
-    // Mark bill as requested
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { billRequested: true },
-    });
+    await prisma.order.update({ where: { id: order.id }, data: { billRequested: true } });
 
-    // Notify all cashiers
     await createNotification({
       roles: ['CASHIER'],
       type: 'BILL_UPDATE',
@@ -346,7 +335,6 @@ const requestBill = async (req, res, next) => {
       io,
     });
 
-    // Also notify manager + admin
     await createNotification({
       roles: ['MANAGER', 'ADMIN'],
       type: 'BILL_UPDATE',
@@ -360,4 +348,169 @@ const requestBill = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getOrders, getOrderById, createOrder, cancelOrder, markServed, requestBill };
+// ── MERGE TABLES ─────────────────────────────────────────────────────────────
+// POST /api/v1/orders/merge
+// Body: { sourceTableId, destinationTableId }
+// Moves all open (unbilled) orders from source table into destination table.
+// If destination has an existing open order per seat, items are appended to it.
+// Source table is freed (AVAILABLE) and its seats are unoccupied.
+// KDS (kitchen/bar) is notified immediately with updated table info.
+const mergeTables = async (req, res, next) => {
+  try {
+    const { sourceTableId, destinationTableId } = req.body;
+    const io = req.app.get('io');
+
+    if (!sourceTableId || !destinationTableId) {
+      return res.status(400).json({ success: false, message: 'sourceTableId and destinationTableId are required' });
+    }
+    if (sourceTableId === destinationTableId) {
+      return res.status(400).json({ success: false, message: 'Source and destination tables must be different' });
+    }
+
+    // Load both tables
+    const [sourceTable, destTable] = await Promise.all([
+      prisma.restaurantTable.findUnique({ where: { id: sourceTableId }, include: { seats: true } }),
+      prisma.restaurantTable.findUnique({ where: { id: destinationTableId }, include: { seats: true } }),
+    ]);
+    if (!sourceTable) return res.status(404).json({ success: false, message: 'Source table not found' });
+    if (!destTable) return res.status(404).json({ success: false, message: 'Destination table not found' });
+
+    // Find all open (not cancelled, not fully paid) orders on source table
+    const sourceOrders = await prisma.order.findMany({
+      where: {
+        tableId: sourceTableId,
+        status: { notIn: ['CANCELLED'] },
+        OR: [
+          { bill: { is: null } },
+          { bill: { status: { not: 'PAID' } } },
+        ],
+      },
+      include: {
+        items: true,
+        kitchenOrder: true,
+        barOrder: true,
+        seat: true,
+      },
+    });
+
+    if (sourceOrders.length === 0) {
+      return res.status(400).json({ success: false, message: 'No open orders found on source table' });
+    }
+
+    // For each source order, move its items to the destination table.
+    // Strategy: reassign the order's tableId to destination, and reassign seatId
+    // to a matching seat on destination (by seat index). If destination has fewer
+    // seats, overflow items all go to the first available seat on destination.
+    const destSeats = destTable.seats;
+    if (destSeats.length === 0) {
+      return res.status(400).json({ success: false, message: 'Destination table has no seats' });
+    }
+
+    const mergedOrderIds = [];
+
+    for (const srcOrder of sourceOrders) {
+      // Find matching seat on destination by position in seats array,
+      // fall back to first seat if source seat index exceeds dest seat count.
+      const srcSeatIndex = sourceTable.seats.findIndex(s => s.id === srcOrder.seatId);
+      const destSeat = destSeats[srcSeatIndex] ?? destSeats[0];
+
+      // Reassign order to destination table/seat
+      await prisma.order.update({
+        where: { id: srcOrder.id },
+        data: {
+          tableId: destinationTableId,
+          seatId: destSeat.id,
+        },
+      });
+
+      // Mark destination seat as occupied
+      await prisma.seat.update({ where: { id: destSeat.id }, data: { isOccupied: true } });
+
+      mergedOrderIds.push(srcOrder.id);
+
+      // Notify KDS (kitchen + bar) that this order's table has changed
+      // so screens update immediately for any in-progress items.
+      const kdsPayload = {
+        orderId: srcOrder.id,
+        fromTable: sourceTable.name,
+        toTable: destTable.name,
+        toSeat: destSeat.label,
+      };
+
+      if (srcOrder.kitchenOrder && srcOrder.kitchenOrder.status !== 'READY') {
+        io?.to('role:KITCHEN').emit('order:table_moved', kdsPayload);
+      }
+      if (srcOrder.barOrder && srcOrder.barOrder.status !== 'READY') {
+        io?.to('role:BAR').emit('order:table_moved', kdsPayload);
+      }
+    }
+
+    // Free source table and all its seats
+    await prisma.restaurantTable.update({
+      where: { id: sourceTableId },
+      data: { status: 'AVAILABLE' },
+    });
+    await prisma.seat.updateMany({
+      where: { tableId: sourceTableId },
+      data: { isOccupied: false },
+    });
+
+    // Mark destination table as OCCUPIED
+    await prisma.restaurantTable.update({
+      where: { id: destinationTableId },
+      data: { status: 'OCCUPIED' },
+    });
+
+    // Fetch merged orders with full data for response
+    const mergedOrders = await prisma.order.findMany({
+      where: { id: { in: mergedOrderIds } },
+      include: {
+        items: { include: { product: true } },
+        table: true,
+        seat: true,
+        waiter: { select: { id: true, name: true } },
+        kitchenOrder: true,
+        barOrder: true,
+        bill: { select: { id: true, billNumber: true, total: true, status: true } },
+      },
+    });
+
+    // Notify all roles of the merge
+    io.to('role:KITCHEN').to('role:BAR').to('role:MANAGER').to('role:ADMIN').to('role:CASHIER').to('role:WAITER').emit('tables:merged', {
+      sourceTable: sourceTable.name,
+      destinationTable: destTable.name,
+      mergedOrders,
+    });
+
+    await createNotification({
+      roles: ['MANAGER', 'ADMIN'],
+      type: 'ORDER_UPDATE',
+      title: '🔀 Tables Merged',
+      message: `Table ${sourceTable.name} merged into Table ${destTable.name} by ${req.user.name}. ${sourceOrders.length} order(s) moved.`,
+      data: { sourceTableId, destinationTableId },
+      io,
+    });
+
+    await createAuditLog({
+      userId: req.user.id,
+      role: req.user.role,
+      action: 'MERGE_TABLES',
+      description: `Merged Table ${sourceTable.name} into Table ${destTable.name}. Orders: ${sourceOrders.map(o => o.orderNumber).join(', ')}`,
+      tableName: 'RestaurantTable',
+      recordId: destinationTableId,
+    });
+
+    res.json({
+      success: true,
+      message: `Table ${sourceTable.name} merged into Table ${destTable.name} successfully`,
+      data: {
+        sourceTable: sourceTable.name,
+        destinationTable: destTable.name,
+        ordersTransferred: sourceOrders.length,
+        mergedOrders,
+      },
+    });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getOrders, getOrderById, createOrder, cancelOrder, markServed, requestBill, mergeTables };

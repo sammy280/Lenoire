@@ -3385,3 +3385,9 @@
 {"level":"debug","message":"Query: SELECT \"public\".\"User\".\"id\", \"public\".\"User\".\"name\" FROM \"public\".\"User\" WHERE \"public\".\"User\".\"id\" IN ($1) OFFSET $2 (0ms)","timestamp":"2026-06-19 15:14:53"}
 {"level":"info","message":"::1 - - [19/Jun/2026:13:14:53 +0000] \"GET /api/v1/bar HTTP/1.1\" 304 - \"http://localhost:5173/\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0\"","timestamp":"2026-06-19 15:14:53"}
 {"level":"info","message":"Socket disconnected: cmqk7bhws000c7bh5qodg1nwo","timestamp":"2026-06-19 15:14:55"}
+{"level":"info","message":"🚀 Sammy ERP Server running on port 5000","timestamp":"2026-06-26 11:16:43"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-06-26 11:16:43"}
+{"level":"info","message":"✅ Database connected","timestamp":"2026-06-26 11:16:44"}
+{"level":"info","message":"🚀 Sammy ERP Server running on port 5000","timestamp":"2026-06-26 11:22:22"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-06-26 11:22:22"}
+{"level":"info","message":"✅ Database connected","timestamp":"2026-06-26 11:22:23"}
