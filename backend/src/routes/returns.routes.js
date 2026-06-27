@@ -6,13 +6,12 @@ const { createAuditLog } = require('../middleware/audit');
 
 router.use(authenticate);
 
-// List return requests
+// GET /returns
 router.get('/', async (req, res, next) => {
   try {
     const { status } = req.query;
     const where = {};
     if (status) where.status = status;
-    // Waiters only see their own
     if (req.user.role === 'WAITER') where.requestedById = req.user.id;
 
     const returns = await prisma.returnRequest.findMany({
@@ -20,8 +19,8 @@ router.get('/', async (req, res, next) => {
       include: {
         order: { include: { table: true, seat: true } },
         items: { include: { orderItem: { include: { product: true } } } },
-        requestedBy: { select: { id: true, name: true, role: true } },
-        reviewedBy: { select: { id: true, name: true } },
+        requestedBy:     { select: { id: true, name: true, role: true } },
+        reviewedBy:      { select: { id: true, name: true } },
         managerApprover: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -30,7 +29,7 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Create return request (waiter)
+// POST /returns  (waiter)
 router.post('/', async (req, res, next) => {
   try {
     const { orderId, items, reason } = req.body;
@@ -42,11 +41,10 @@ router.post('/', async (req, res, next) => {
     });
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-    // Check which dept to notify (food → kitchen, drink → bar)
-    const returnItemsEnriched = items.map(i => {
-      const orderItem = order.items.find(oi => oi.id === i.orderItemId);
-      return { ...i, type: orderItem?.type };
-    });
+    const enriched = items.map(i => ({
+      ...i,
+      type: order.items.find(oi => oi.id === i.orderItemId)?.type,
+    }));
 
     const returnReq = await prisma.returnRequest.create({
       data: {
@@ -54,31 +52,47 @@ router.post('/', async (req, res, next) => {
         reason,
         requestedById: req.user.id,
         items: {
-          create: items.map(i => ({ orderItemId: i.orderItemId, quantity: i.quantity, reason: i.reason })),
+          create: items.map(i => ({
+            orderItemId: i.orderItemId,
+            quantity:    i.quantity,
+            reason:      i.reason || null,
+          })),
         },
       },
-      include: { items: { include: { orderItem: { include: { product: true } } } }, requestedBy: { select: { id: true, name: true } } },
+      include: {
+        items: { include: { orderItem: { include: { product: true } } } },
+        requestedBy: { select: { id: true, name: true } },
+      },
     });
 
-    const hasDrink = returnItemsEnriched.some(i => i.type === 'DRINK');
-    const hasFood = returnItemsEnriched.some(i => i.type === 'FOOD');
+    const hasDrink = enriched.some(i => i.type === 'DRINK');
+    const hasFood  = enriched.some(i => i.type === 'FOOD');
 
     if (hasDrink) {
-      await createNotification({ roles: ['BAR'], type: 'RETURN_REQUEST', title: '🔄 Return Request', message: `${req.user.name} wants to return drinks from Table ${order.table.name} ${order.seat.label}. Reason: ${reason}`, data: { returnId: returnReq.id }, io });
+      await createNotification({
+        roles: ['BAR'], type: 'RETURN_REQUEST',
+        title: '🔄 Return Request',
+        message: `${req.user.name} wants to return drinks — Table ${order.table.name} ${order.seat.label}. Reason: ${reason}`,
+        data: { returnId: returnReq.id }, io,
+      });
     }
     if (hasFood) {
-      await createNotification({ roles: ['KITCHEN'], type: 'RETURN_REQUEST', title: '🔄 Return Request', message: `${req.user.name} wants to return food from Table ${order.table.name} ${order.seat.label}. Reason: ${reason}`, data: { returnId: returnReq.id }, io });
+      await createNotification({
+        roles: ['KITCHEN'], type: 'RETURN_REQUEST',
+        title: '🔄 Return Request',
+        message: `${req.user.name} wants to return food — Table ${order.table.name} ${order.seat.label}. Reason: ${reason}`,
+        data: { returnId: returnReq.id }, io,
+      });
     }
-    await createNotification({ roles: ['MANAGER', 'ADMIN'], type: 'RETURN_REQUEST', title: '🔄 Return Request Created', message: `Waiter ${req.user.name}: return request for Table ${order.table.name}`, data: { returnId: returnReq.id }, io });
 
     res.status(201).json({ success: true, data: returnReq });
   } catch (err) { next(err); }
 });
 
-// Bar/Kitchen review (approve or reject)
+// PATCH /returns/:id/review  (Bar or Kitchen)
 router.patch('/:id/review', authorize('BAR', 'KITCHEN', 'MANAGER', 'ADMIN'), async (req, res, next) => {
   try {
-    const { status, reviewNote } = req.body; // APPROVED_BY_BAR / APPROVED_BY_KITCHEN / REJECTED
+    const { approved, reviewNote } = req.body;
     const io = req.app.get('io');
 
     const existing = await prisma.returnRequest.findUnique({
@@ -86,93 +100,126 @@ router.patch('/:id/review', authorize('BAR', 'KITCHEN', 'MANAGER', 'ADMIN'), asy
       include: { requestedBy: true, order: { include: { table: true, seat: true } } },
     });
     if (!existing) return res.status(404).json({ success: false, message: 'Not found' });
+    if (existing.status !== 'PENDING') {
+      return res.status(400).json({ success: false, message: 'Already reviewed' });
+    }
 
-    const updated = await prisma.returnRequest.update({
+    const newStatus = !approved
+      ? 'REJECTED'
+      : req.user.role === 'BAR' ? 'APPROVED_BY_BAR' : 'APPROVED_BY_KITCHEN';
+
+    await prisma.returnRequest.update({
       where: { id: req.params.id },
-      data: { status, reviewedById: req.user.id, reviewNote, reviewedAt: new Date() },
+      data: { status: newStatus, reviewedById: req.user.id, reviewNote, reviewedAt: new Date() },
     });
 
-    const isApproved = ['APPROVED_BY_BAR', 'APPROVED_BY_KITCHEN'].includes(status);
-    await createNotification({
-      userIds: [existing.requestedById],
-      type: 'RETURN_REQUEST',
-      title: isApproved ? '✅ Return Approved (Bar/Kitchen)' : '❌ Return Rejected',
-      message: isApproved
-        ? `Your return request was approved by ${req.user.name}. Awaiting manager final approval.`
-        : `Your return request was rejected by ${req.user.name}. ${reviewNote || ''}`,
-      data: { returnId: existing.id },
-      io,
-    });
-
-    if (isApproved) {
+    if (approved) {
       await createNotification({
-        roles: ['MANAGER', 'ADMIN'],
-        type: 'RETURN_REQUEST',
-        title: '⏳ Return Needs Manager Approval',
-        message: `Return request approved by ${req.user.name} — awaiting your final approval. Table ${existing.order.table.name}`,
-        data: { returnId: existing.id },
-        io,
+        roles: ['CASHIER', 'MANAGER', 'ADMIN'], type: 'RETURN_REQUEST',
+        title: '⏳ Return Needs Cashier Validation',
+        message: `Return approved by ${req.user.name} (${req.user.role}) — Table ${existing.order.table.name} ${existing.order.seat.label}. Please validate.`,
+        data: { returnId: existing.id }, io,
       });
     }
 
-    res.json({ success: true, data: updated });
+    await createNotification({
+      userIds: [existing.requestedById], type: 'RETURN_REQUEST',
+      title: approved ? '✅ Return Approved by Dept' : '❌ Return Rejected',
+      message: approved
+        ? `Your return was approved by ${req.user.name}. Awaiting cashier validation.`
+        : `Your return was rejected by ${req.user.name}. ${reviewNote || ''}`,
+      data: { returnId: existing.id }, io,
+    });
+
+    res.json({ success: true, data: await prisma.returnRequest.findUnique({ where: { id: req.params.id } }) });
   } catch (err) { next(err); }
 });
 
-// Manager final decision
-router.patch('/:id/manager-review', authorize('MANAGER', 'ADMIN'), async (req, res, next) => {
+// PATCH /returns/:id/manager-review  (Cashier / Manager final validation)
+router.patch('/:id/manager-review', authorize('CASHIER', 'MANAGER', 'ADMIN'), async (req, res, next) => {
   try {
-    const { status, managerNote } = req.body; // MANAGER_APPROVED / MANAGER_REJECTED
+    const { approved, managerNote } = req.body;
     const io = req.app.get('io');
 
     const existing = await prisma.returnRequest.findUnique({
       where: { id: req.params.id },
       include: {
         requestedBy: true,
-        items: { include: { orderItem: { include: { product: { include: { category: true } } } } } },
+        order: { include: { table: true, seat: true } },
+        items: {
+          include: {
+            orderItem: {
+              include: { product: { include: { inventoryLinks: true } } },
+            },
+          },
+        },
       },
     });
     if (!existing) return res.status(404).json({ success: false, message: 'Not found' });
 
-    const updated = await prisma.returnRequest.update({
-      where: { id: req.params.id },
-      data: { status, managerApproverId: req.user.id, managerNote, managerActedAt: new Date() },
-    });
-
-    if (status === 'MANAGER_APPROVED') {
-      // Restock inventory for returned items (if product has inventory link)
-      for (const ri of existing.items) {
-        const product = ri.orderItem.product;
-        // Find inventory links for this product
-        const links = await prisma.productInventory.findMany({ where: { productId: product.id } });
-        for (const link of links) {
-          await prisma.inventoryItem.update({
-            where: { id: link.inventoryItemId },
-            data: { quantity: { increment: parseFloat(link.quantityUsed) * ri.quantity } },
-          });
-        }
-      }
-      await prisma.returnRequest.update({ where: { id: req.params.id }, data: { restockDone: true } });
-
-      await createAuditLog({
-        userId: req.user.id, role: req.user.role, action: 'APPROVE_RETURN',
-        description: `Manager approved return request #${req.params.id}`,
-        tableName: 'ReturnRequest', recordId: req.params.id,
-      });
+    const deptApproved = ['APPROVED_BY_BAR', 'APPROVED_BY_KITCHEN'].includes(existing.status);
+    if (!deptApproved) {
+      return res.status(400).json({ success: false, message: 'Awaiting Bar/Kitchen approval first' });
     }
 
-    await createNotification({
-      userIds: [existing.requestedById],
-      type: 'RETURN_REQUEST',
-      title: status === 'MANAGER_APPROVED' ? '✅ Return Fully Approved' : '❌ Return Rejected by Manager',
-      message: status === 'MANAGER_APPROVED'
-        ? 'Manager has fully approved your return request. Stock has been updated.'
-        : `Manager rejected your return: ${managerNote || ''}`,
-      data: { returnId: existing.id },
-      io,
+    const newStatus = approved ? 'MANAGER_APPROVED' : 'MANAGER_REJECTED';
+
+    await prisma.$transaction(async (tx) => {
+      await tx.returnRequest.update({
+        where: { id: req.params.id },
+        data: {
+          status:             newStatus,
+          managerApproverId:  req.user.id,
+          managerNote,
+          managerActedAt:     new Date(),
+          restockDone:        approved,
+        },
+      });
+
+      if (approved) {
+        for (const ri of existing.items) {
+          const links = ri.orderItem.product.inventoryLinks;
+          for (const link of links) {
+            const current = await tx.inventoryItem.findUnique({ where: { id: link.inventoryItemId } });
+            const addQty  = parseFloat(link.quantity) * ri.quantity;
+            await tx.inventoryItem.update({
+              where: { id: link.inventoryItemId },
+              data:  { quantity: { increment: addQty } },
+            });
+            await tx.stockMovement.create({
+              data: {
+                inventoryItemId: link.inventoryItemId,
+                type:            'IN',
+                quantity:        addQty,
+                previousQty:     parseFloat(current.quantity),
+                newQty:          parseFloat(current.quantity) + addQty,
+                reason:          `Return #${req.params.id.slice(-6).toUpperCase()} validated`,
+                reference:       req.params.id,
+                userId:          req.user.id,
+              },
+            });
+          }
+        }
+
+        await createAuditLog({
+          userId: req.user.id, role: req.user.role,
+          action: 'APPROVE_RETURN',
+          description: `Return #${req.params.id.slice(-6).toUpperCase()} validated — Table ${existing.order.table.name}`,
+          tableName: 'ReturnRequest', recordId: req.params.id,
+        });
+      }
     });
 
-    res.json({ success: true, data: updated });
+    await createNotification({
+      userIds: [existing.requestedById], type: 'RETURN_REQUEST',
+      title: approved ? '✅ Return Fully Validated' : '❌ Return Rejected by Cashier',
+      message: approved
+        ? 'Cashier has validated your return. Stock has been restored.'
+        : `Cashier rejected your return: ${managerNote || ''}`,
+      data: { returnId: existing.id }, io,
+    });
+
+    res.json({ success: true, data: await prisma.returnRequest.findUnique({ where: { id: req.params.id } }) });
   } catch (err) { next(err); }
 });
 
