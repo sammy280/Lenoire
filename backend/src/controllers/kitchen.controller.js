@@ -4,13 +4,23 @@ const { createNotification } = require('../services/notification.service');
 const getKitchenOrders = async (req, res, next) => {
   try {
     const { status } = req.query;
-    const where = status ? { status } : { status: { not: 'CANCELLED' } };
+
+    // If a specific status is requested use it, otherwise show only
+    // active states — exclude SERVED and CANCELLED so the KDS clears
+    // automatically once the waiter marks an order served.
+    const where = status
+      ? { status }
+      : { status: { notIn: ['CANCELLED', 'SERVED'] } };
+
     const orders = await prisma.kitchenOrder.findMany({
       where,
       include: {
         order: {
           include: {
-            items: { where: { type: 'FOOD' }, include: { product: true } },
+            items: {
+              where: { type: 'FOOD' },
+              include: { product: true },
+            },
             table: true,
             seat: true,
             waiter: { select: { id: true, name: true } },
@@ -20,6 +30,7 @@ const getKitchenOrders = async (req, res, next) => {
       },
       orderBy: { createdAt: 'asc' },
     });
+
     res.json({ success: true, data: orders });
   } catch (err) { next(err); }
 };
@@ -38,11 +49,16 @@ const updateKitchenStatus = async (req, res, next) => {
         readyAt: status === 'READY' ? new Date() : undefined,
       },
       include: {
-        order: { include: { table: true, seat: true, waiter: { select: { id: true, name: true } } } },
+        order: {
+          include: {
+            table: true,
+            seat: true,
+            waiter: { select: { id: true, name: true } },
+          },
+        },
       },
     });
 
-    // Notify waiter
     const waiterId = kitchenOrder.order.waiterId;
     const orderNum = kitchenOrder.order.orderNumber;
     const tableName = kitchenOrder.order.table.name;

@@ -4,13 +4,23 @@ const { createNotification } = require('../services/notification.service');
 const getBarOrders = async (req, res, next) => {
   try {
     const { status } = req.query;
-    const where = status ? { status } : { status: { not: 'CANCELLED' } };
+
+    // If a specific status is requested use it, otherwise show only
+    // active states — exclude SERVED and CANCELLED so the KDS clears
+    // automatically once the waiter marks an order served.
+    const where = status
+      ? { status }
+      : { status: { notIn: ['CANCELLED', 'SERVED'] } };
+
     const orders = await prisma.barOrder.findMany({
       where,
       include: {
         order: {
           include: {
-            items: { where: { type: 'DRINK' }, include: { product: true } },
+            items: {
+              where: { type: 'DRINK' },
+              include: { product: true },
+            },
             table: true,
             seat: true,
             waiter: { select: { id: true, name: true } },
@@ -20,6 +30,7 @@ const getBarOrders = async (req, res, next) => {
       },
       orderBy: { createdAt: 'asc' },
     });
+
     res.json({ success: true, data: orders });
   } catch (err) { next(err); }
 };
@@ -38,7 +49,13 @@ const updateBarStatus = async (req, res, next) => {
         readyAt: status === 'READY' ? new Date() : undefined,
       },
       include: {
-        order: { include: { table: true, seat: true, waiter: { select: { id: true, name: true } } } },
+        order: {
+          include: {
+            table: true,
+            seat: true,
+            waiter: { select: { id: true, name: true } },
+          },
+        },
       },
     });
 
