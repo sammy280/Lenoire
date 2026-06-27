@@ -21,6 +21,7 @@ async function main() {
   const umunPin     = await bcrypt.hash('7777', 12);
   const safiBarPin  = await bcrypt.hash('8888', 12);
   const patrickBarPin = await bcrypt.hash('9999', 12);
+  const rachelPin    = await bcrypt.hash('1234', 12);
 
   // Admin 1 - Mory Kaba
   const mory = await prisma.user.upsert({
@@ -175,6 +176,16 @@ async function main() {
     },
   });
 
+  const rachel = await prisma.user.upsert({
+    where: { email: 'rachel@sammy.rw' },
+    update: {},
+    create: {
+      email: 'rachel@sammy.rw', pin: rachelPin, name: 'Rachel', 
+      role: 'WAITER', loginType: 'PIN',
+      profile: { create: { employmentDate: new Date('2023-02-10'), phone: '+250780000016', address: 'Kigali, Rwanda' } }, 
+    },
+  });
+
   console.log('✅ Users created');
 
   // ===== CATEGORIES =====
@@ -248,13 +259,13 @@ async function main() {
     { name: 'Ururimi', price: 3500, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },  
     { name: 'Whole fish ', price: 13000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'Whole chicken(inyarwanda)', price: 22000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
-    { name: 'Zingaro', price: 3500, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 }, 
+    { name: 'Zingaro', price: 3000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 }, 
     { name: 'Zngalo Agatogo', price: 7500, categoryId: cats['Boiled'], preparationTime: 20 },
     { name: 'Beef pilao', price: 25000, categoryId: cats['Boiled'], preparationTime: 20 },
     { name: 'Beef Boil', price: 7000, categoryId: cats['Boiled'], preparationTime: 20 },
     { name: 'Whole Chicken(igisafuriya)', price: 28000, categoryId: cats['Boiled'], preparationTime: 20 }, 
     { name: 'Half Chicken(igisafuriya)', price: 18000, categoryId: cats['Boiled'], preparationTime: 20 },
-    { name: 'Chicken wings', price: 9000, categoryId: cats['Fast Food'], preparationTime: 10 },
+    { name: 'Chicken wings', price: 8000, categoryId: cats['Fast Food'], preparationTime: 10 },
     { name: 'Fish fillet', price: 10000, categoryId: cats['Fast Food'], preparationTime: 12 },
     { name: 'Traditional Stew', price: 9000, categoryId: cats['Fast Food'], preparationTime: 12 },
     { name: 'Chicken Leg', price: 10000, categoryId: cats['Fast Food'], preparationTime: 12 },

@@ -83,19 +83,15 @@ const createOrder = async (req, res, next) => {
     const foodItems = enrichedItems.filter(i => i.type === 'FOOD');
     const drinkItems = enrichedItems.filter(i => i.type === 'DRINK');
 
-    // FIX 1: Scope to this waiter's own orders only (waiterId: req.user.id)
-    // FIX 2: Removed bill: { is: null } — a seat on a table where ANOTHER seat
-    //         has a bill should not be blocked. We scope strictly to seatId,
-    //         and only exclude orders that are already billed+paid (bill.status PAID).
     const existingOrder = tableId && seatId ? await prisma.order.findFirst({
       where: {
         tableId,
         seatId,
-        waiterId: req.user.id,          // FIX 1: own orders only
+        waiterId: req.user.id,
         status: { notIn: ['CANCELLED'] },
         OR: [
-          { bill: { is: null } },        // no bill yet
-          { bill: { status: { not: 'PAID' } } }, // bill exists but not paid yet
+          { bill: { is: null } },
+          { bill: { status: { not: 'PAID' } } },
         ],
       },
       include: {
@@ -113,6 +109,8 @@ const createOrder = async (req, res, next) => {
 
     if (existingOrder) {
       isAddition = true;
+
+      // Append new items
       await prisma.orderItem.createMany({
         data: enrichedItems.map(i => ({
           orderId: existingOrder.id,
@@ -124,11 +122,37 @@ const createOrder = async (req, res, next) => {
         })),
       });
 
-      if (foodItems.length > 0 && !existingOrder.kitchenOrder) {
-        await prisma.kitchenOrder.create({ data: { orderId: existingOrder.id } });
+      // ── FIX 1: Reset order status back to PENDING so the waiter sees it
+      //           as active again (PENDING / PREPARING) instead of SERVED/READY.
+      await prisma.order.update({
+        where: { id: existingOrder.id },
+        data: { status: 'PENDING' },
+      });
+
+      if (foodItems.length > 0) {
+        if (!existingOrder.kitchenOrder) {
+          // No kitchen order yet — create one
+          await prisma.kitchenOrder.create({ data: { orderId: existingOrder.id } });
+        } else {
+          // Kitchen order exists — reset it to PENDING so KDS shows new items
+          await prisma.kitchenOrder.update({
+            where: { orderId: existingOrder.id },
+            data: { status: 'PENDING' },
+          });
+        }
       }
-      if (drinkItems.length > 0 && !existingOrder.barOrder) {
-        await prisma.barOrder.create({ data: { orderId: existingOrder.id } });
+
+      if (drinkItems.length > 0) {
+        if (!existingOrder.barOrder) {
+          // No bar order yet — create one
+          await prisma.barOrder.create({ data: { orderId: existingOrder.id } });
+        } else {
+          // Bar order exists — reset it to PENDING so KDS shows new items
+          await prisma.barOrder.update({
+            where: { orderId: existingOrder.id },
+            data: { status: 'PENDING' },
+          });
+        }
       }
 
       order = await prisma.order.findUnique({
@@ -285,7 +309,11 @@ const cancelOrder = async (req, res, next) => {
 
 const markServed = async (req, res, next) => {
   try {
-    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    // ── FIX 2: Include kitchenOrder and barOrder so we can close them out too
+    const existing = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: { kitchenOrder: true, barOrder: true },
+    });
     if (!existing) return res.status(404).json({ success: false, message: 'Order not found' });
     if (req.user.role === 'WAITER' && existing.waiterId !== req.user.id) {
       return res.status(403).json({ success: false, message: 'You can only mark your own orders as served' });
@@ -294,11 +322,32 @@ const markServed = async (req, res, next) => {
       return res.status(409).json({ success: false, message: 'Order already marked as served' });
     }
 
-    const order = await prisma.order.update({
+    // ── FIX 2: Update order + kitchenOrder + barOrder atomically so the KDS
+    //           stops showing "waiting for waiter" the moment the waiter taps Served.
+    await prisma.$transaction([
+      prisma.order.update({
+        where: { id: req.params.id },
+        data: { status: 'SERVED' },
+      }),
+      ...(existing.kitchenOrder ? [
+        prisma.kitchenOrder.update({
+          where: { orderId: req.params.id },
+          data: { status: 'SERVED' },
+        }),
+      ] : []),
+      ...(existing.barOrder ? [
+        prisma.barOrder.update({
+          where: { orderId: req.params.id },
+          data: { status: 'SERVED' },
+        }),
+      ] : []),
+    ]);
+
+    const order = await prisma.order.findUnique({
       where: { id: req.params.id },
-      data: { status: 'SERVED' },
-      include: { table: true, seat: true },
+      include: { table: true, seat: true, kitchenOrder: true, barOrder: true },
     });
+
     const io = req.app.get('io');
     io.emit('order:served', order);
     res.json({ success: true, data: order });
@@ -349,12 +398,6 @@ const requestBill = async (req, res, next) => {
 };
 
 // ── MERGE TABLES ─────────────────────────────────────────────────────────────
-// POST /api/v1/orders/merge
-// Body: { sourceTableId, destinationTableId }
-// Moves all open (unbilled) orders from source table into destination table.
-// If destination has an existing open order per seat, items are appended to it.
-// Source table is freed (AVAILABLE) and its seats are unoccupied.
-// KDS (kitchen/bar) is notified immediately with updated table info.
 const mergeTables = async (req, res, next) => {
   try {
     const { sourceTableId, destinationTableId } = req.body;
@@ -367,7 +410,6 @@ const mergeTables = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Source and destination tables must be different' });
     }
 
-    // Load both tables
     const [sourceTable, destTable] = await Promise.all([
       prisma.restaurantTable.findUnique({ where: { id: sourceTableId }, include: { seats: true } }),
       prisma.restaurantTable.findUnique({ where: { id: destinationTableId }, include: { seats: true } }),
@@ -375,7 +417,6 @@ const mergeTables = async (req, res, next) => {
     if (!sourceTable) return res.status(404).json({ success: false, message: 'Source table not found' });
     if (!destTable) return res.status(404).json({ success: false, message: 'Destination table not found' });
 
-    // Find all open (not cancelled, not fully paid) orders on source table
     const sourceOrders = await prisma.order.findMany({
       where: {
         tableId: sourceTableId,
@@ -397,10 +438,6 @@ const mergeTables = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'No open orders found on source table' });
     }
 
-    // For each source order, move its items to the destination table.
-    // Strategy: reassign the order's tableId to destination, and reassign seatId
-    // to a matching seat on destination (by seat index). If destination has fewer
-    // seats, overflow items all go to the first available seat on destination.
     const destSeats = destTable.seats;
     if (destSeats.length === 0) {
       return res.status(400).json({ success: false, message: 'Destination table has no seats' });
@@ -409,12 +446,9 @@ const mergeTables = async (req, res, next) => {
     const mergedOrderIds = [];
 
     for (const srcOrder of sourceOrders) {
-      // Find matching seat on destination by position in seats array,
-      // fall back to first seat if source seat index exceeds dest seat count.
       const srcSeatIndex = sourceTable.seats.findIndex(s => s.id === srcOrder.seatId);
       const destSeat = destSeats[srcSeatIndex] ?? destSeats[0];
 
-      // Reassign order to destination table/seat
       await prisma.order.update({
         where: { id: srcOrder.id },
         data: {
@@ -423,13 +457,10 @@ const mergeTables = async (req, res, next) => {
         },
       });
 
-      // Mark destination seat as occupied
       await prisma.seat.update({ where: { id: destSeat.id }, data: { isOccupied: true } });
 
       mergedOrderIds.push(srcOrder.id);
 
-      // Notify KDS (kitchen + bar) that this order's table has changed
-      // so screens update immediately for any in-progress items.
       const kdsPayload = {
         orderId: srcOrder.id,
         fromTable: sourceTable.name,
@@ -445,7 +476,6 @@ const mergeTables = async (req, res, next) => {
       }
     }
 
-    // Free source table and all its seats
     await prisma.restaurantTable.update({
       where: { id: sourceTableId },
       data: { status: 'AVAILABLE' },
@@ -455,13 +485,11 @@ const mergeTables = async (req, res, next) => {
       data: { isOccupied: false },
     });
 
-    // Mark destination table as OCCUPIED
     await prisma.restaurantTable.update({
       where: { id: destinationTableId },
       data: { status: 'OCCUPIED' },
     });
 
-    // Fetch merged orders with full data for response
     const mergedOrders = await prisma.order.findMany({
       where: { id: { in: mergedOrderIds } },
       include: {
@@ -475,7 +503,6 @@ const mergeTables = async (req, res, next) => {
       },
     });
 
-    // Notify all roles of the merge
     io.to('role:KITCHEN').to('role:BAR').to('role:MANAGER').to('role:ADMIN').to('role:CASHIER').to('role:WAITER').emit('tables:merged', {
       sourceTable: sourceTable.name,
       destinationTable: destTable.name,
