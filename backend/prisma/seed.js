@@ -203,6 +203,8 @@ async function main() {
     { name: 'Pizza', type: 'FOOD', icon: '🍕' },
     { name: 'Pasta', type: 'FOOD', icon: '🍝' },
     { name: 'Dessert', type: 'FOOD', icon: '🍰' },
+    { name: 'Hot Tea', type: 'DRINK', icon: '🍵' },
+    { name: 'Coffee', type: 'DRINK', icon: '☕' },
   ];
 
   const drinkCategories = [
@@ -219,8 +221,7 @@ async function main() {
     { name: 'Tequila', type: 'DRINK', icon: '🌵' },
     { name: 'Juice', type: 'DRINK', icon: '🧃' },
     { name: 'Gins', type: 'DRINK', icon: '🍸' },
-    { name: 'Hot Tea', type: 'DRINK', icon: '🍵' },
-    { name: 'Coffee', type: 'DRINK', icon: '☕' },
+    
   ];
 
   const cats = {};
@@ -335,6 +336,18 @@ async function main() {
     { name: 'Fruit platter', price: 8000, categoryId: cats['Dessert'], preparationTime: 5 },
     { name: 'Fruit', price: 7000, categoryId: cats['Dessert'], preparationTime: 5 },
     { name: 'Crèpe  suzette', price: 5000, categoryId: cats['Dessert'], preparationTime: 5 },
+    { name: 'Green Tea', price: 1000, categoryId: cats['Hot Tea'], preparationTime: 3 },
+    { name: 'African Tea', price: 3500, categoryId: cats['Hot Tea'], preparationTime: 3 },
+    { name: 'Spice tea', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
+    { name: 'Ginger tea', price: 3000, categoryId: cats['Hot Tea'], preparationTime: 5 },
+    { name: 'Lemon tea', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
+    { name: 'African coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
+    { name: 'Black coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
+    { name: 'Regulaar coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
+    { name: 'Espresso', price: 4000, categoryId: cats['Coffee'], preparationTime: 5 },
+    { name: 'Cappuccino', price: 3500, categoryId: cats['Coffee'], isFeatured: true, preparationTime: 5 },
+    { name: 'Latte', price: 3500, categoryId: cats['Coffee'], preparationTime: 5 },
+    { name: 'Cold Coffee', price: 4000, categoryId: cats['Coffee'], preparationTime: 5 },
     // DRINKS
     { name: 'Fanta', price: 1500, categoryId: cats['Soft Drinks'], preparationTime: 1 }, 
     { name: 'Bavaria san alcohol', price: 4000, categoryId: cats['Soft Drinks'], preparationTime: 1 },
@@ -434,18 +447,7 @@ async function main() {
     { name: 'Konyagi Small', price: 5000, categoryId: cats['Gins'], preparationTime: 2, description: 'Small' },
     { name: 'Magic moment', price: 70000, categoryId: cats['Gins'], preparationTime: 2, description: 'Bottle' },
     { name: 'U waragi', price: 25000, categoryId: cats['Gins'], preparationTime: 2, description: 'Bottle' },
-    { name: 'Green Tea', price: 1000, categoryId: cats['Hot Tea'], preparationTime: 3 },
-    { name: 'African Tea', price: 3500, categoryId: cats['Hot Tea'], preparationTime: 3 },
-    { name: 'Spice tea', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
-    { name: 'Ginger tea', price: 3000, categoryId: cats['Hot Tea'], preparationTime: 5 },
-    { name: 'Lemon tea', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
-    { name: 'African coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
-    { name: 'Black coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
-    { name: 'Regulaar coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
-    { name: 'Espresso', price: 4000, categoryId: cats['Coffee'], preparationTime: 5 },
-    { name: 'Cappuccino', price: 3500, categoryId: cats['Coffee'], isFeatured: true, preparationTime: 5 },
-    { name: 'Latte', price: 3500, categoryId: cats['Coffee'], preparationTime: 5 },
-    { name: 'Cold Coffee', price: 4000, categoryId: cats['Coffee'], preparationTime: 5 },
+  
   ];
 
   for (const product of products) {
