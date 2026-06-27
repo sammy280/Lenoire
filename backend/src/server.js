@@ -57,11 +57,13 @@ app.use((req, res) => res.status(404).json({ success: false, message: 'Route not
 
 // Global error handler
 app.use((err, req, res, next) => {
+  console.error('GLOBAL ERROR:', err.message);
+  console.error('STACK:', err.stack);
   logger.error(`${err.status || 500} - ${err.message} - ${req.originalUrl}`);
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    stack: err.stack, // ✅ always show stack temporarily
   });
 });
 
