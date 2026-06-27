@@ -14,6 +14,7 @@ const initSocket = (server) => {
       credentials: true,
     },
     pingTimeout: 60000,
+    transports: ['polling'],
   });
 
   // Auth middleware for socket — allow unauthenticated for online store customers
