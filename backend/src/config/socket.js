@@ -6,16 +6,22 @@ let io;
 
 const initSocket = (server) => {
   io = new Server(server, {
-    cors: {
-      origin: [
+  cors: {
+    origin: (origin, cb) => {
+      const allowedOrigins = [
         process.env.FRONTEND_URL || 'http://localhost:5173',
         process.env.ONLINE_STORE_URL || 'http://localhost:5174',
-      ],
-      credentials: true,
+        'https://lenoire.vercel.app',
+      ];
+      const isAllowed = !origin || allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin);
+      cb(isAllowed ? null : new Error('Not allowed by CORS'), isAllowed);
     },
-    pingTimeout: 60000,
-    transports: ['polling'],
-  });
+    credentials: true,
+  },
+  pingTimeout: 60000,
+  transports: ['polling'],
+});
+  
 
   // Auth middleware for socket — allow unauthenticated for online store customers
   io.use((socket, next) => {
