@@ -26,7 +26,12 @@ export default function KitchenDashboard() {
     if (!socket) return;
     socket.on('kitchen:updated', () => qc.invalidateQueries(['kitchen-orders']));
     socket.on('order:new', () => qc.invalidateQueries(['kitchen-orders']));
-    return () => { socket.off('kitchen:updated'); socket.off('order:new'); };
+    socket.on('order:updated', () => qc.invalidateQueries(['kitchen-orders']));
+    return () => {
+      socket.off('kitchen:updated');
+      socket.off('order:new');
+      socket.off('order:updated');
+    };
   }, []);
 
   const orders = data?.data || [];
@@ -38,6 +43,14 @@ export default function KitchenDashboard() {
     const elapsed = Math.floor((Date.now() - new Date(order.createdAt)) / 60000);
     const isUrgent = elapsed > 20;
 
+    // ── BATCH FILTER ──────────────────────────────────────────────────────────
+    // Only show items from the current batch (the latest addition wave).
+    // Old items from previous batches (already served) are hidden.
+    const currentBatch = order.currentBatch ?? 1;
+    const itemsToShow = (order.order?.items ?? []).filter(
+      item => (item.batchNumber ?? 1) === currentBatch
+    );
+
     return (
       <div className={cn('order-card', isUrgent && 'border-red-500/50 bg-red-500/5')}>
         <div className="flex items-start justify-between">
@@ -45,37 +58,55 @@ export default function KitchenDashboard() {
             <p className="font-mono text-xs text-primary">{order.order?.orderNumber?.slice(-8)}</p>
             <p className="font-bold text-lg">Table {order.order?.table?.name} • {order.order?.seat?.label}</p>
             <p className="text-sm text-muted-foreground">Waiter: {order.order?.waiter?.name}</p>
+            {currentBatch > 1 && (
+              <span className="text-xs px-2 py-0.5 bg-orange-500/15 text-orange-400 rounded-full font-semibold">
+                ➕ Addition #{currentBatch}
+              </span>
+            )}
           </div>
-          <div className={cn('flex items-center gap-1 text-xs px-2 py-1 rounded-full', isUrgent ? 'bg-red-500/20 text-red-400' : 'bg-muted text-muted-foreground')}>
+          <div className={cn(
+            'flex items-center gap-1 text-xs px-2 py-1 rounded-full',
+            isUrgent ? 'bg-red-500/20 text-red-400' : 'bg-muted text-muted-foreground'
+          )}>
             <Clock className="w-3 h-3" /> {elapsed}m ago
           </div>
         </div>
 
-        {/* Food items */}
+        {/* Food items — current batch only */}
         <div className="space-y-1.5 mt-3">
-          {order.order?.items?.map(item => (
+          {itemsToShow.map(item => (
             <div key={item.id} className="flex items-center gap-2 text-sm">
-              <span className="w-7 h-7 bg-primary/20 text-primary rounded-lg flex items-center justify-center font-bold text-xs">{item.quantity}x</span>
+              <span className="w-7 h-7 bg-primary/20 text-primary rounded-lg flex items-center justify-center font-bold text-xs">
+                {item.quantity}x
+              </span>
               <span className="font-medium">{item.product?.name}</span>
               {item.notes && <span className="text-xs text-orange-400 italic">"{item.notes}"</span>}
             </div>
           ))}
         </div>
 
-        {/* Notes */}
-        {order.order?.notes && <p className="text-xs text-muted-foreground italic mt-2 p-2 bg-accent rounded-lg">📝 {order.order.notes}</p>}
+        {/* Order notes */}
+        {order.order?.notes && (
+          <p className="text-xs text-muted-foreground italic mt-2 p-2 bg-accent rounded-lg">
+            📝 {order.order.notes}
+          </p>
+        )}
 
         {/* Actions */}
         <div className="flex gap-2 mt-3">
           {order.status === 'PENDING' && (
-            <button onClick={() => updateStatus.mutate({ id: order.id, status: 'PREPARING' })}
-              className="flex-1 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg text-sm font-medium flex items-center justify-center gap-2">
+            <button
+              onClick={() => updateStatus.mutate({ id: order.id, status: 'PREPARING' })}
+              className="flex-1 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+            >
               <PlayCircle className="w-4 h-4" /> Start Preparing
             </button>
           )}
           {order.status === 'PREPARING' && (
-            <button onClick={() => updateStatus.mutate({ id: order.id, status: 'READY' })}
-              className="flex-1 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-sm font-medium flex items-center justify-center gap-2">
+            <button
+              onClick={() => updateStatus.mutate({ id: order.id, status: 'READY' })}
+              className="flex-1 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+            >
               <CheckCircle className="w-4 h-4" /> Mark Ready
             </button>
           )}

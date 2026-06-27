@@ -21,7 +21,6 @@ const getOrders = async (req, res, next) => {
       where.createdAt = { gte: d, lt: new Date(d.getTime() + 86400000) };
     }
 
-    // Waiters only see their own orders
     if (req.user.role === 'WAITER') where.waiterId = req.user.id;
 
     const orders = await prisma.order.findMany({
@@ -69,9 +68,11 @@ const createOrder = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Order must have at least one item' });
     }
 
-    // Validate products and prices
     const productIds = items.map(i => i.productId);
-    const products = await prisma.product.findMany({ where: { id: { in: productIds } }, include: { category: true } });
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: { category: true },
+    });
     const productMap = Object.fromEntries(products.map(p => [p.id, p]));
 
     const enrichedItems = items.map(item => {
@@ -100,6 +101,7 @@ const createOrder = async (req, res, next) => {
         seat: true,
         kitchenOrder: true,
         barOrder: true,
+        bill: true,
       },
       orderBy: { createdAt: 'desc' },
     }) : null;
@@ -110,7 +112,17 @@ const createOrder = async (req, res, next) => {
     if (existingOrder) {
       isAddition = true;
 
-      // Append new items
+      // ── Determine next batch number ───────────────────────────────────────
+      // BUG 3 FIX: Each addition gets a new batchNumber. The KDS filters
+      // items by batchNumber == kitchenOrder.currentBatch, so old served
+      // items (batch 1) never appear on a new ticket (batch 2+).
+      const existingBatch = Math.max(
+        existingOrder.kitchenOrder?.currentBatch ?? 1,
+        existingOrder.barOrder?.currentBatch ?? 1,
+      );
+      const newBatch = existingBatch + 1;
+
+      // Append new items tagged with the new batch number
       await prisma.orderItem.createMany({
         data: enrichedItems.map(i => ({
           orderId: existingOrder.id,
@@ -119,40 +131,63 @@ const createOrder = async (req, res, next) => {
           unitPrice: i.unitPrice,
           notes: i.notes,
           type: i.type,
+          batchNumber: newBatch,
         })),
       });
 
-      // ── FIX 1: Reset order status back to PENDING so the waiter sees it
-      //           as active again (PENDING / PREPARING) instead of SERVED/READY.
+      // Reset order status back to PENDING
       await prisma.order.update({
         where: { id: existingOrder.id },
         data: { status: 'PENDING' },
       });
 
+      // Kitchen: reset status + bump currentBatch
       if (foodItems.length > 0) {
         if (!existingOrder.kitchenOrder) {
-          // No kitchen order yet — create one
-          await prisma.kitchenOrder.create({ data: { orderId: existingOrder.id } });
+          await prisma.kitchenOrder.create({
+            data: { orderId: existingOrder.id, currentBatch: newBatch },
+          });
         } else {
-          // Kitchen order exists — reset it to PENDING so KDS shows new items
           await prisma.kitchenOrder.update({
             where: { orderId: existingOrder.id },
-            data: { status: 'PENDING' },
+            data: { status: 'PENDING', currentBatch: newBatch },
           });
         }
       }
 
+      // Bar: reset status + bump currentBatch
       if (drinkItems.length > 0) {
         if (!existingOrder.barOrder) {
-          // No bar order yet — create one
-          await prisma.barOrder.create({ data: { orderId: existingOrder.id } });
+          await prisma.barOrder.create({
+            data: { orderId: existingOrder.id, currentBatch: newBatch },
+          });
         } else {
-          // Bar order exists — reset it to PENDING so KDS shows new items
           await prisma.barOrder.update({
             where: { orderId: existingOrder.id },
-            data: { status: 'PENDING' },
+            data: { status: 'PENDING', currentBatch: newBatch },
           });
         }
+      }
+
+      // ── BUG 4 FIX: Recalculate bill total if a bill already exists ────────
+      // The bill was a snapshot of the original order total. New items were
+      // never counted so the waiter's preview showed the wrong (old) total.
+      if (existingOrder.bill && existingOrder.bill.status !== 'PAID') {
+        const allItems = await prisma.orderItem.findMany({
+          where: { orderId: existingOrder.id },
+        });
+        const newSubtotal = allItems.reduce(
+          (sum, item) => sum + parseFloat(item.unitPrice) * item.quantity,
+          0,
+        );
+        const tax = parseFloat(existingOrder.bill.tax ?? 0);
+        const discount = parseFloat(existingOrder.bill.discount ?? 0);
+        const newTotal = newSubtotal + tax - discount;
+
+        await prisma.bill.update({
+          where: { id: existingOrder.bill.id },
+          data: { subtotal: newSubtotal, total: newTotal },
+        });
       }
 
       order = await prisma.order.findUnique({
@@ -163,9 +198,11 @@ const createOrder = async (req, res, next) => {
           seat: true,
           kitchenOrder: true,
           barOrder: true,
+          bill: { select: { id: true, billNumber: true, total: true, status: true } },
         },
       });
     } else {
+      // Brand new order — batch 1
       order = await prisma.order.create({
         data: {
           orderNumber: generateOrderNumber(),
@@ -182,10 +219,11 @@ const createOrder = async (req, res, next) => {
               unitPrice: i.unitPrice,
               notes: i.notes,
               type: i.type,
+              batchNumber: 1,
             })),
           },
-          kitchenOrder: foodItems.length > 0 ? { create: {} } : undefined,
-          barOrder: drinkItems.length > 0 ? { create: {} } : undefined,
+          kitchenOrder: foodItems.length > 0 ? { create: { currentBatch: 1 } } : undefined,
+          barOrder: drinkItems.length > 0 ? { create: { currentBatch: 1 } } : undefined,
         },
         include: {
           items: { include: { product: true } },
@@ -200,6 +238,7 @@ const createOrder = async (req, res, next) => {
       await prisma.seat.update({ where: { id: seatId }, data: { isOccupied: true } });
     }
 
+    // ── Notifications ─────────────────────────────────────────────────────
     if (foodItems.length > 0) {
       await createNotification({
         roles: ['KITCHEN'],
@@ -226,6 +265,11 @@ const createOrder = async (req, res, next) => {
       });
     }
 
+    // ── Print tickets ─────────────────────────────────────────────────────
+    const newBatchForTicket = isAddition
+      ? Math.max(order.kitchenOrder?.currentBatch ?? 1, order.barOrder?.currentBatch ?? 1)
+      : 1;
+
     const ticketContent = {
       orderNumber: order.orderNumber,
       table: order.table?.name,
@@ -233,34 +277,68 @@ const createOrder = async (req, res, next) => {
       waiter: req.user.name,
       notes: notes || '',
       isAddition,
+      batchNumber: newBatchForTicket,
       timestamp: new Date().toISOString(),
     };
 
     if (foodItems.length > 0) {
-      const kitchenContent = JSON.stringify({ ...ticketContent, items: foodItems.map(i => ({ name: productMap[i.productId]?.name, qty: i.quantity, notes: i.notes })) });
-      await prisma.printLog.create({
-        data: { jobType: 'KITCHEN_TICKET', title: `Kitchen — ${order.table?.name} ${order.seat?.label}`, content: kitchenContent, targetPrinter: 'kitchen', orderId: order.id, printedById: req.user.id },
+      const kitchenContent = JSON.stringify({
+        ...ticketContent,
+        items: foodItems.map(i => ({ name: productMap[i.productId]?.name, qty: i.quantity, notes: i.notes })),
       });
-      io?.to('printer:kitchen').emit('print:job', { jobType: 'KITCHEN_TICKET', content: JSON.parse(kitchenContent), orderId: order.id });
+      await prisma.printLog.create({
+        data: {
+          jobType: 'KITCHEN_TICKET',
+          title: `Kitchen — ${order.table?.name} ${order.seat?.label}`,
+          content: kitchenContent,
+          targetPrinter: 'kitchen',
+          orderId: order.id,
+          printedById: req.user.id,
+        },
+      });
+      io?.to('printer:kitchen').emit('print:job', {
+        jobType: 'KITCHEN_TICKET',
+        content: JSON.parse(kitchenContent),
+        orderId: order.id,
+      });
     }
+
     if (drinkItems.length > 0) {
-      const barContent = JSON.stringify({ ...ticketContent, items: drinkItems.map(i => ({ name: productMap[i.productId]?.name, qty: i.quantity, notes: i.notes })) });
-      await prisma.printLog.create({
-        data: { jobType: 'BAR_TICKET', title: `Bar — ${order.table?.name} ${order.seat?.label}`, content: barContent, targetPrinter: 'bar', orderId: order.id, printedById: req.user.id },
+      const barContent = JSON.stringify({
+        ...ticketContent,
+        items: drinkItems.map(i => ({ name: productMap[i.productId]?.name, qty: i.quantity, notes: i.notes })),
       });
-      io?.to('printer:bar').emit('print:job', { jobType: 'BAR_TICKET', content: JSON.parse(barContent), orderId: order.id });
+      await prisma.printLog.create({
+        data: {
+          jobType: 'BAR_TICKET',
+          title: `Bar — ${order.table?.name} ${order.seat?.label}`,
+          content: barContent,
+          targetPrinter: 'bar',
+          orderId: order.id,
+          printedById: req.user.id,
+        },
+      });
+      io?.to('printer:bar').emit('print:job', {
+        jobType: 'BAR_TICKET',
+        content: JSON.parse(barContent),
+        orderId: order.id,
+      });
     }
 
     io.to('role:KITCHEN').to('role:BAR').to('role:MANAGER').to('role:ADMIN').to('role:CASHIER').emit(
       isAddition ? 'order:updated' : 'order:new',
-      order
+      order,
     );
 
     await createAuditLog({
-      userId: req.user.id, role: req.user.role,
+      userId: req.user.id,
+      role: req.user.role,
       action: isAddition ? 'ADD_TO_ORDER' : 'CREATE_ORDER',
-      description: isAddition ? `Added items to order ${order.orderNumber}` : `Created order ${order.orderNumber}`,
-      tableName: 'Order', recordId: order.id,
+      description: isAddition
+        ? `Added items to order ${order.orderNumber}`
+        : `Created order ${order.orderNumber}`,
+      tableName: 'Order',
+      recordId: order.id,
     });
 
     res.status(isAddition ? 200 : 201).json({
@@ -301,7 +379,14 @@ const cancelOrder = async (req, res, next) => {
       });
     }
 
-    await createAuditLog({ userId: req.user.id, role: req.user.role, action: 'CANCEL_ORDER', description: `Cancelled order ${order.orderNumber}: ${reason}`, tableName: 'Order', recordId: order.id });
+    await createAuditLog({
+      userId: req.user.id,
+      role: req.user.role,
+      action: 'CANCEL_ORDER',
+      description: `Cancelled order ${order.orderNumber}: ${reason}`,
+      tableName: 'Order',
+      recordId: order.id,
+    });
 
     res.json({ success: true, data: updated, message: 'Order cancelled' });
   } catch (err) { next(err); }
@@ -309,7 +394,6 @@ const cancelOrder = async (req, res, next) => {
 
 const markServed = async (req, res, next) => {
   try {
-    // ── FIX 2: Include kitchenOrder and barOrder so we can close them out too
     const existing = await prisma.order.findUnique({
       where: { id: req.params.id },
       include: { kitchenOrder: true, barOrder: true },
@@ -322,8 +406,6 @@ const markServed = async (req, res, next) => {
       return res.status(409).json({ success: false, message: 'Order already marked as served' });
     }
 
-    // ── FIX 2: Update order + kitchenOrder + barOrder atomically so the KDS
-    //           stops showing "waiting for waiter" the moment the waiter taps Served.
     await prisma.$transaction([
       prisma.order.update({
         where: { id: req.params.id },
@@ -426,12 +508,7 @@ const mergeTables = async (req, res, next) => {
           { bill: { status: { not: 'PAID' } } },
         ],
       },
-      include: {
-        items: true,
-        kitchenOrder: true,
-        barOrder: true,
-        seat: true,
-      },
+      include: { items: true, kitchenOrder: true, barOrder: true, seat: true },
     });
 
     if (sourceOrders.length === 0) {
@@ -451,14 +528,10 @@ const mergeTables = async (req, res, next) => {
 
       await prisma.order.update({
         where: { id: srcOrder.id },
-        data: {
-          tableId: destinationTableId,
-          seatId: destSeat.id,
-        },
+        data: { tableId: destinationTableId, seatId: destSeat.id },
       });
 
       await prisma.seat.update({ where: { id: destSeat.id }, data: { isOccupied: true } });
-
       mergedOrderIds.push(srcOrder.id);
 
       const kdsPayload = {
@@ -476,19 +549,9 @@ const mergeTables = async (req, res, next) => {
       }
     }
 
-    await prisma.restaurantTable.update({
-      where: { id: sourceTableId },
-      data: { status: 'AVAILABLE' },
-    });
-    await prisma.seat.updateMany({
-      where: { tableId: sourceTableId },
-      data: { isOccupied: false },
-    });
-
-    await prisma.restaurantTable.update({
-      where: { id: destinationTableId },
-      data: { status: 'OCCUPIED' },
-    });
+    await prisma.restaurantTable.update({ where: { id: sourceTableId }, data: { status: 'AVAILABLE' } });
+    await prisma.seat.updateMany({ where: { tableId: sourceTableId }, data: { isOccupied: false } });
+    await prisma.restaurantTable.update({ where: { id: destinationTableId }, data: { status: 'OCCUPIED' } });
 
     const mergedOrders = await prisma.order.findMany({
       where: { id: { in: mergedOrderIds } },

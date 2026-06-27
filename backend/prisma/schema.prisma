@@ -364,6 +364,7 @@ model OrderItem {
   unitPrice   Decimal @db.Decimal(10, 2)
   notes       String?
   type        String  // FOOD or DRINK
+  batchNumber Int     @default(1)
   returnItems ReturnItem[]
 }
 
@@ -377,6 +378,7 @@ model KitchenOrder {
   notes     String?
   startedAt DateTime?
   readyAt   DateTime?
+  currentBatch Int      @default(1)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 }
@@ -391,6 +393,7 @@ model BarOrder {
   notes     String?
   startedAt DateTime?
   readyAt   DateTime?
+  currentBatch Int      @default(1)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 }
