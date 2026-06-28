@@ -39,7 +39,7 @@ export default function ManagerDashboard() {
     <div className="space-y-6">
       <PageHeader title="Manager Dashboard" subtitle="Daily operations overview" />
 
-      {/* Primary KPIs */}
+      {/* Primary KPIs — 2 cols on mobile, 4 on md+ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard title="Today's Revenue" value={formatCurrency(dp?.totalRevenue || stats?.revenue || 0)} icon={DollarSign} color="primary" />
         <StatCard title="Orders Today" value={stats?.orders || 0} icon={ShoppingCart} color="blue" />
@@ -47,7 +47,7 @@ export default function ManagerDashboard() {
         <StatCard title="Employees" value={activeEmployees} icon={Users} color="green" />
       </div>
 
-      {/* Payment breakdown */}
+      {/* Payment breakdown — 2 cols on mobile, 4 on md+ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-card border border-border rounded-xl p-5">
           <div className="flex items-center gap-2 mb-1">
@@ -79,35 +79,36 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
-      {/* Alerts row */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Alerts row — 1 col on mobile, 3 on md+ */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link to="/requisitions?status=PENDING" className={`bg-card border rounded-xl p-5 flex items-center gap-4 hover:border-primary/40 transition-all ${pendingReqs > 0 ? 'border-yellow-500/40 bg-yellow-500/5' : 'border-border'}`}>
-          <ClipboardList className={`w-8 h-8 ${pendingReqs > 0 ? 'text-yellow-400' : 'text-muted-foreground'}`} />
-          <div>
+          <ClipboardList className={`w-8 h-8 flex-shrink-0 ${pendingReqs > 0 ? 'text-yellow-400' : 'text-muted-foreground'}`} />
+          <div className="min-w-0">
             <p className="text-2xl font-bold">{pendingReqs}</p>
             <p className="text-sm text-muted-foreground">Pending Requisitions</p>
           </div>
-          <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
+          <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto flex-shrink-0" />
         </Link>
         <Link to="/inventory" className={`bg-card border rounded-xl p-5 flex items-center gap-4 hover:border-primary/40 transition-all ${lowStockCount > 0 ? 'border-red-500/40 bg-red-500/5' : 'border-border'}`}>
-          <AlertTriangle className={`w-8 h-8 ${lowStockCount > 0 ? 'text-red-400' : 'text-muted-foreground'}`} />
-          <div>
+          <AlertTriangle className={`w-8 h-8 flex-shrink-0 ${lowStockCount > 0 ? 'text-red-400' : 'text-muted-foreground'}`} />
+          <div className="min-w-0">
             <p className="text-2xl font-bold">{lowStockCount}</p>
             <p className="text-sm text-muted-foreground">Low Stock Items</p>
           </div>
-          <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
+          <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto flex-shrink-0" />
         </Link>
         <Link to="/daily-report" className="bg-card border border-border rounded-xl p-5 flex items-center gap-4 hover:border-primary/40 transition-all">
-          <BarChart2 className="w-8 h-8 text-primary" />
-          <div>
+          <BarChart2 className="w-8 h-8 text-primary flex-shrink-0" />
+          <div className="min-w-0">
             <p className="text-2xl font-bold">{formatCurrency(dp ? (dp.totalRevenue - dp.totalExpenses) : 0)}</p>
             <p className="text-sm text-muted-foreground">Estimated Profit Today</p>
           </div>
-          <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
+          <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto flex-shrink-0" />
         </Link>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4">
+      {/* Chart + Low Stock — stack on mobile, side-by-side on lg+ */}
+      <div className="flex flex-col lg:grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5">
           <h3 className="font-semibold mb-4">Monthly Revenue</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -135,10 +136,11 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
+      {/* Recent Orders — horizontally scrollable table on mobile */}
       <div className="bg-card border border-border rounded-xl p-5">
         <h3 className="font-semibold mb-4">Recent Orders</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-5 px-5">
+          <table className="w-full text-sm min-w-[480px]">
             <thead><tr className="text-muted-foreground border-b border-border">
               <th className="text-left pb-3 font-medium">Order #</th>
               <th className="text-left pb-3 font-medium">Table</th>

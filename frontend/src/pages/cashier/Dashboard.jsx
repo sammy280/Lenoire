@@ -4,7 +4,7 @@ import { formatCurrency, formatDateTime, cn } from '../../lib/utils';
 import Badge from '../../components/shared/Badge';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
-import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge } from 'lucide-react';
+import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, ChevronDown, ChevronUp } from 'lucide-react';
 import PrintBill from '../../components/shared/PrintBill';
 import { useState, useEffect } from 'react';
 import { getSocket } from '../../lib/socket';
@@ -23,6 +23,10 @@ export default function CashierDashboard() {
   const [creditInfo, setCreditInfo] = useState({ name: '', phone: '', role: '' });
   const [tableModal, setTableModal] = useState(null);
   const [genBillType, setGenBillType] = useState('NORMAL');
+
+  // Mobile accordion state
+  const [ordersOpen, setOrdersOpen] = useState(true);
+  const [billsOpen, setBillsOpen] = useState(true);
 
   // Merge state
   const [mergeModal, setMergeModal] = useState(false);
@@ -163,7 +167,7 @@ export default function CashierDashboard() {
             )}>
               {i < currentIdx ? '✓' : i + 1}
             </div>
-            <span className={cn('text-xs', i === currentIdx ? 'text-foreground font-semibold' : 'text-muted-foreground')}>{s.label}</span>
+            <span className={cn('text-xs hidden sm:inline', i === currentIdx ? 'text-foreground font-semibold' : 'text-muted-foreground')}>{s.label}</span>
             {i < steps.length - 1 && <span className="text-muted-foreground mx-1">→</span>}
           </div>
         ))}
@@ -175,15 +179,16 @@ export default function CashierDashboard() {
     <div className="space-y-6">
       <PageHeader title="Cashier Dashboard" subtitle="Manage bills and payments" />
 
-      <div className="grid grid-cols-4 gap-4">
+      {/* Stats: 2 cols on mobile, 4 on desktop */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard title="Pending Bills" value={generatedBills.length} icon={Receipt} color="orange" />
         <StatCard title="Paid Today" value={paidToday.length} icon={CheckCircle} color="green" />
         <StatCard title="Today's Revenue" value={formatCurrency(totalToday)} icon={DollarSign} color="primary" />
         <StatCard title="Bill Requests" value={billRequestedOrders.length} icon={Clock} color={billRequestedOrders.length > 0 ? 'primary' : 'blue'} subtitle={billRequestedOrders.length > 0 ? '⚡ Action needed' : 'No requests'} />
       </div>
 
-      {/* Bill Type selector */}
-      <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
+      {/* Bill Type selector — stacks nicely on mobile already */}
+      <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap items-center gap-4">
         <span className="text-sm font-semibold text-muted-foreground">Default Bill Type:</span>
         <div className="flex gap-2">
           {BILL_TYPES.map(t => (
@@ -195,7 +200,7 @@ export default function CashierDashboard() {
             </button>
           ))}
         </div>
-        <span className="text-xs text-muted-foreground ml-2">
+        <span className="text-xs text-muted-foreground">
           {genBillType === 'EBM' ? 'EBM = Electronic Billing Machine (tax receipt)' : 'Normal = Standard receipt'}
         </span>
       </div>
@@ -206,23 +211,27 @@ export default function CashierDashboard() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Table2 className="w-5 h-5 text-primary" />
-              <h3 className="font-semibold">Occupied Tables — Click to View & Manage</h3>
+              <h3 className="font-semibold">Occupied Tables</h3>
             </div>
             {occupiedTables.length >= 2 && (
               <button
                 onClick={() => { setMergeModal(true); setMergeStep('source'); }}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/40 text-purple-400 rounded-xl text-sm font-semibold transition-all"
+                className="flex items-center gap-2 px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/40 text-purple-400 rounded-xl text-sm font-semibold transition-all"
               >
                 <GitMerge className="w-4 h-4" />
-                Merge Tables
+                <span className="hidden sm:inline">Merge Tables</span>
+                <span className="sm:hidden">Merge</span>
               </button>
             )}
           </div>
-          <div className="flex flex-wrap gap-3">
+          {/* 2 cols on mobile, wrap freely on desktop */}
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-3">
             {occupiedTables.map(table => (
               <button key={table.id} onClick={() => setTableModal(table)}
                 className={cn(
-                  'flex flex-col items-center justify-center w-20 h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105',
+                  'flex flex-col items-center justify-center rounded-xl border-2 font-bold text-sm transition-all hover:scale-105',
+                  // On mobile fill the grid cell; on sm+ keep fixed size
+                  'h-20 sm:w-20',
                   table.status === 'WAITING_PAYMENT'
                     ? 'border-orange-500/60 bg-orange-500/10 text-orange-300'
                     : 'border-red-500/40 bg-red-500/5 text-red-300 hover:border-red-400'
@@ -240,16 +249,16 @@ export default function CashierDashboard() {
         <div className="bg-card border border-blue-500/30 rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <Globe className="w-5 h-5 text-blue-400" />
-            <h3 className="font-semibold">Online Orders — Awaiting Payment Confirmation</h3>
+            <h3 className="font-semibold">Online Orders</h3>
             <span className="ml-auto text-xs bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full font-semibold">
               {(onlineOrders?.data || []).length} pending
             </span>
           </div>
           <div className="space-y-3">
             {(onlineOrders?.data || []).map(order => (
-              <div key={order.id} className="flex items-center justify-between p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+              <div key={order.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-xs font-bold text-blue-400">#{order.orderNumber}</span>
                     <span className="text-xs bg-accent px-2 py-0.5 rounded-full">{order.deliveryType}</span>
                     <span className="text-xs bg-accent px-2 py-0.5 rounded-full">{order.paymentMethod?.replace('_', ' ')}</span>
@@ -258,7 +267,7 @@ export default function CashierDashboard() {
                   <p className="text-xs text-muted-foreground">{order.customer?.phone || order.guestPhone}</p>
                   <p className="text-xs text-muted-foreground">{order.items?.length} item(s)</p>
                 </div>
-                <div className="text-right space-y-2">
+                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2">
                   <p className="text-xl font-bold text-primary">{formatCurrency(order.total)}</p>
                   {!order.isPaid && (
                     <button onClick={() => confirmOnlinePayment.mutate(order.id)} disabled={confirmOnlinePayment.isPending}
@@ -267,7 +276,7 @@ export default function CashierDashboard() {
                     </button>
                   )}
                   {order.isPaid && order.status !== 'DELIVERED' && order.status !== 'CANCELLED' && (
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 items-end">
                       <span className="text-xs text-green-400 font-semibold">✓ Paid</span>
                       {order.status === 'ACCEPTED' && <button onClick={() => updateOnlineStatus.mutate({ id: order.id, status: 'PREPARING' })} className="px-3 py-1 bg-blue-500 text-white rounded-lg text-xs font-semibold">→ Mark Preparing</button>}
                       {order.status === 'PREPARING' && <button onClick={() => updateOnlineStatus.mutate({ id: order.id, status: 'READY' })} className="px-3 py-1 bg-purple-500 text-white rounded-lg text-xs font-semibold">→ Mark Ready</button>}
@@ -282,18 +291,30 @@ export default function CashierDashboard() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-4">
-        {/* Served orders */}
-        <div className={cn('border rounded-xl p-5', billRequestedOrders.length > 0 ? 'bg-primary/5 border-primary/40' : 'bg-card border-border')}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold">Served Orders — Generate Bill</h3>
-            {billRequestedOrders.length > 0 && (
-              <span className="text-xs bg-primary text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
-                {billRequestedOrders.length} requested!
-              </span>
-            )}
-          </div>
-          <div className="space-y-2 max-h-72 overflow-y-auto">
+      {/* ── Orders + Bills: side-by-side on desktop, collapsible accordion on mobile ── */}
+      <div className="flex flex-col lg:flex-row gap-4">
+
+        {/* Served orders — collapsible on mobile */}
+        <div className={cn('flex-1 border rounded-xl', billRequestedOrders.length > 0 ? 'bg-primary/5 border-primary/40' : 'bg-card border-border')}>
+          {/* Accordion header (visible on mobile, static heading on desktop) */}
+          <button
+            className="w-full flex items-center justify-between p-5 lg:cursor-default"
+            onClick={() => setOrdersOpen(o => !o)}
+          >
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">Served Orders — Generate Bill</h3>
+              {billRequestedOrders.length > 0 && (
+                <span className="text-xs bg-primary text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
+                  {billRequestedOrders.length} requested!
+                </span>
+              )}
+            </div>
+            <span className="lg:hidden text-muted-foreground">
+              {ordersOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </span>
+          </button>
+
+          <div className={cn('px-5 pb-5 space-y-2 max-h-72 overflow-y-auto', !ordersOpen && 'hidden lg:block')}>
             {billRequestedOrders.map(order => (
               <div key={order.id} className="flex items-center justify-between p-3 bg-primary/10 border-2 border-primary/40 rounded-xl">
                 <div>
@@ -329,10 +350,19 @@ export default function CashierDashboard() {
           </div>
         </div>
 
-        {/* Generated bills */}
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h3 className="font-semibold mb-4">Bills Awaiting Payment</h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
+        {/* Generated bills — collapsible on mobile */}
+        <div className="flex-1 bg-card border border-border rounded-xl">
+          <button
+            className="w-full flex items-center justify-between p-5 lg:cursor-default"
+            onClick={() => setBillsOpen(o => !o)}
+          >
+            <h3 className="font-semibold">Bills Awaiting Payment</h3>
+            <span className="lg:hidden text-muted-foreground">
+              {billsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </span>
+          </button>
+
+          <div className={cn('px-5 pb-5 space-y-2 max-h-64 overflow-y-auto', !billsOpen && 'hidden lg:block')}>
             {generatedBills.map(bill => (
               <div key={bill.id} className={cn('flex items-center justify-between p-3 rounded-lg border-2 cursor-pointer transition-all',
                 selectedBill?.id === bill.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40 bg-accent/30'
@@ -381,10 +411,11 @@ export default function CashierDashboard() {
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          {/* Payment method + amount: stack on mobile, side-by-side on sm+ */}
+          <div className="flex flex-col sm:grid sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2">Payment Method</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-2 gap-2">
                 {PAYMENT_METHODS.map(m => (
                   <button key={m} onClick={() => setPayMethod(m)}
                     className={cn('py-2 px-3 rounded-lg text-xs font-medium border-2 transition-all',
@@ -408,7 +439,7 @@ export default function CashierDashboard() {
           {payMethod === 'CREDIT' && (
             <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 space-y-3">
               <p className="text-sm font-semibold text-red-400">⚠️ Credit Sale — Customer Info Required</p>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col sm:grid sm:grid-cols-3 gap-3">
                 <input value={creditInfo.name} onChange={e => setCreditInfo(c => ({ ...c, name: e.target.value }))} placeholder="Customer Name*" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
                 <input value={creditInfo.phone} onChange={e => setCreditInfo(c => ({ ...c, phone: e.target.value }))} placeholder="Phone" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
                 <input value={creditInfo.role} onChange={e => setCreditInfo(c => ({ ...c, role: e.target.value }))} placeholder="Role/Position" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
@@ -455,7 +486,7 @@ export default function CashierDashboard() {
                     </div>
                     {activeOrders.map(order => (
                       <div key={order.id} className="mb-3 last:mb-0">
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <span className="font-mono text-xs text-primary font-bold">#{order.orderNumber?.slice(-6)}</span>
                           <span className="text-xs text-muted-foreground">by {order.waiter?.name}</span>
                           <Badge status={order.status} />
@@ -519,12 +550,12 @@ export default function CashierDashboard() {
               {mergeStep === 'source' && (
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">Which table's orders do you want to move?</p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
                     {occupiedTables.map(table => (
                       <button key={table.id}
                         onClick={() => { setMergeSource(table); setMergeDest(null); setMergeDestSeat(null); setMergeStep('destination'); }}
                         className={cn(
-                          'flex flex-col items-center justify-center w-20 h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105',
+                          'flex flex-col items-center justify-center h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105 sm:w-20',
                           mergeSource?.id === table.id
                             ? 'border-purple-500 bg-purple-500/20 text-purple-300'
                             : 'border-border hover:border-purple-500/50 bg-accent/50'
@@ -543,12 +574,12 @@ export default function CashierDashboard() {
                   <p className="text-sm text-muted-foreground">
                     Move orders from <strong className="text-purple-400">Table {mergeSource?.name}</strong> into which table?
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
                     {occupiedTables.filter(t => t.id !== mergeSource?.id).map(table => (
                       <button key={table.id}
                         onClick={() => { setMergeDest(table); setMergeDestSeat(null); setMergeStep('seat'); }}
                         className={cn(
-                          'flex flex-col items-center justify-center w-20 h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105',
+                          'flex flex-col items-center justify-center h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105 sm:w-20',
                           mergeDest?.id === table.id
                             ? 'border-green-500 bg-green-500/20 text-green-300'
                             : 'border-border hover:border-green-500/50 bg-accent/50'
@@ -568,12 +599,12 @@ export default function CashierDashboard() {
                   <p className="text-sm text-muted-foreground">
                     Which seat on <strong className="text-green-400">Table {mergeDest?.name}</strong> should receive the orders?
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid grid-cols-4 sm:flex sm:flex-wrap gap-2">
                     {mergeDest?.seats?.map(seat => (
                       <button key={seat.id}
                         onClick={() => { setMergeDestSeat(seat); setMergeStep('confirm'); }}
                         className={cn(
-                          'flex flex-col items-center justify-center w-16 h-16 rounded-xl border-2 font-bold text-sm transition-all',
+                          'flex flex-col items-center justify-center h-16 rounded-xl border-2 font-bold text-sm transition-all sm:w-16',
                           mergeDestSeat?.id === seat.id
                             ? 'border-green-500 bg-green-500/20 text-green-300'
                             : seat.isOccupied
@@ -594,7 +625,7 @@ export default function CashierDashboard() {
               {mergeStep === 'confirm' && (
                 <div className="space-y-4">
                   <div className="bg-accent/50 border border-border rounded-xl p-4 space-y-3 text-sm">
-                    <div className="flex items-center justify-center gap-4 font-semibold text-base">
+                    <div className="flex items-center justify-center gap-4 font-semibold text-base flex-wrap">
                       <span className="px-3 py-1.5 bg-purple-500/20 text-purple-300 rounded-lg">Table {mergeSource?.name}</span>
                       <span className="text-muted-foreground text-lg">→</span>
                       <span className="px-3 py-1.5 bg-green-500/20 text-green-300 rounded-lg">Table {mergeDest?.name} • {mergeDestSeat?.label}</span>
