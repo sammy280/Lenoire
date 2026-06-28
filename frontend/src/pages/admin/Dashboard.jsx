@@ -2,10 +2,16 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
-import { formatCurrency, formatDateTime, getStatusColor, cn } from '../../lib/utils';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { DollarSign, ShoppingCart, Users, Package, Clock, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { formatCurrency, formatDateTime, cn } from '../../lib/utils';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
+} from 'recharts';
+import {
+  DollarSign, ShoppingCart, Users, Clock, TrendingUp,
+  AlertTriangle, CheckCircle,
+} from 'lucide-react';
+import { useEffect } from 'react';
 import { getSocket } from '../../lib/socket';
 import Badge from '../../components/shared/Badge';
 
@@ -53,40 +59,43 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Admin Dashboard" subtitle={`Overview of operations — ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`} />
+      <PageHeader
+        title="Admin Dashboard"
+        subtitle={`Overview — ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}
+      />
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        <StatCard title="Today's Revenue" value={formatCurrency(stats?.revenue || 0)} icon={DollarSign} color="primary" />
-        <StatCard title="Orders Today" value={stats?.orders || 0} icon={ShoppingCart} color="blue" />
-        <StatCard title="Active Orders" value={stats?.activeOrders || 0} icon={Clock} color="orange" />
-        <StatCard title="Pending Bills" value={stats?.pendingBills || 0} icon={CheckCircle} color="yellow" />
-        <StatCard title="Low Stock" value={stats?.lowStockItems || 0} icon={AlertTriangle} color="red" />
-        <StatCard title="Attendance" value={stats?.attendance || 0} icon={Users} color="green" subtitle="Today" />
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <StatCard title="Today's Revenue"  value={formatCurrency(stats?.revenue || 0)}    icon={DollarSign}    color="primary" />
+        <StatCard title="Orders Today"     value={stats?.orders || 0}                      icon={ShoppingCart}  color="blue" />
+        <StatCard title="Active Orders"    value={stats?.activeOrders || 0}                icon={Clock}         color="orange" />
+        <StatCard title="Pending Bills"    value={stats?.pendingBills || 0}                icon={CheckCircle}   color="yellow" />
+        <StatCard title="Low Stock"        value={stats?.lowStockItems || 0}               icon={AlertTriangle} color="red" />
+        <StatCard title="Attendance"       value={stats?.attendance || 0}                  icon={Users}         color="green" subtitle="Today" />
       </div>
 
       {/* Charts row */}
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Revenue chart */}
         <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5">
           <h3 className="font-semibold mb-4">Monthly Revenue vs Expenses</h3>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={revenueData}>
               <defs>
                 <linearGradient id="revenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.3} />
+                  <stop offset="5%"  stopColor="#f97316" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="expenses" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                  <stop offset="5%"  stopColor="#ef4444" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => `${(v/1000).toFixed(0)}K`} />
-              <Tooltip formatter={(v) => formatCurrency(v)} />
-              <Area type="monotone" dataKey="revenue" stroke="#f97316" fill="url(#revenue)" strokeWidth={2} />
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}K`} />
+              <Tooltip formatter={v => formatCurrency(v)} />
+              <Area type="monotone" dataKey="revenue"  stroke="#f97316" fill="url(#revenue)"  strokeWidth={2} />
               <Area type="monotone" dataKey="expenses" stroke="#ef4444" fill="url(#expenses)" strokeWidth={2} />
             </AreaChart>
           </ResponsiveContainer>
@@ -100,17 +109,17 @@ export default function AdminDashboard() {
               <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={3}>
                 {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Pie>
-              <Tooltip formatter={(v) => formatCurrency(v)} />
+              <Tooltip formatter={v => formatCurrency(v)} />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-1.5 mt-2">
             {pieData.map((entry, i) => (
               <div key={entry.name} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
-                  <span className="text-muted-foreground">{entry.name.replace('_', ' ')}</span>
+                  <div className="w-3 h-3 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
+                  <span className="text-muted-foreground truncate">{entry.name.replace('_', ' ')}</span>
                 </div>
-                <span className="font-medium">{formatCurrency(entry.value)}</span>
+                <span className="font-medium shrink-0 ml-2">{formatCurrency(entry.value)}</span>
               </div>
             ))}
           </div>
@@ -118,7 +127,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Best sellers + Low stock */}
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Top Foods */}
         <div className="bg-card border border-border rounded-xl p-5">
           <h3 className="font-semibold mb-4">🍽️ Top Food Items</h3>
@@ -130,7 +139,7 @@ export default function AdminDashboard() {
                   <p className="text-sm font-medium truncate">{item.name}</p>
                   <p className="text-xs text-muted-foreground">{item.count} orders</p>
                 </div>
-                <span className="text-sm font-semibold text-primary">{formatCurrency(item.revenue)}</span>
+                <span className="text-sm font-semibold text-primary shrink-0">{formatCurrency(item.revenue)}</span>
               </div>
             ))}
             {topFoods.length === 0 && <p className="text-sm text-muted-foreground">No data yet</p>}
@@ -148,7 +157,7 @@ export default function AdminDashboard() {
                   <p className="text-sm font-medium truncate">{item.name}</p>
                   <p className="text-xs text-muted-foreground">{item.count} orders</p>
                 </div>
-                <span className="text-sm font-semibold text-primary">{formatCurrency(item.revenue)}</span>
+                <span className="text-sm font-semibold text-primary shrink-0">{formatCurrency(item.revenue)}</span>
               </div>
             ))}
             {topDrinks.length === 0 && <p className="text-sm text-muted-foreground">No data yet</p>}
@@ -163,11 +172,11 @@ export default function AdminDashboard() {
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {(inventory?.data || []).map(item => (
               <div key={item.id} className="flex items-center justify-between p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
-                <div>
-                  <p className="text-sm font-medium">{item.name}</p>
+                <div className="min-w-0 mr-2">
+                  <p className="text-sm font-medium truncate">{item.name}</p>
                   <p className="text-xs text-muted-foreground">{item.category}</p>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <p className={cn('text-sm font-bold', parseFloat(item.quantity) === 0 ? 'text-red-400' : 'text-orange-400')}>
                     {parseFloat(item.quantity)} {item.unit}
                   </p>
@@ -183,7 +192,29 @@ export default function AdminDashboard() {
       {/* Recent orders */}
       <div className="bg-card border border-border rounded-xl p-5">
         <h3 className="font-semibold mb-4">Recent Orders</h3>
-        <div className="overflow-x-auto">
+
+        {/* Mobile cards */}
+        <div className="flex flex-col gap-3 md:hidden">
+          {(recentOrders?.data || []).slice(0, 8).map(order => (
+            <div key={order.id} className="flex items-center justify-between p-3 bg-accent/30 rounded-xl border border-border">
+              <div className="space-y-0.5">
+                <p className="font-mono text-xs text-primary font-semibold">{order.orderNumber}</p>
+                <p className="text-sm font-medium">Table {order.table?.name} · {order.seat?.label}</p>
+                <p className="text-xs text-muted-foreground">{order.waiter?.name}</p>
+              </div>
+              <div className="text-right space-y-1">
+                <Badge status={order.status} />
+                <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+              </div>
+            </div>
+          ))}
+          {!(recentOrders?.data?.length) && (
+            <p className="text-sm text-muted-foreground text-center py-6">No recent orders</p>
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-muted-foreground border-b border-border">
@@ -198,7 +229,7 @@ export default function AdminDashboard() {
               {(recentOrders?.data || []).slice(0, 8).map(order => (
                 <tr key={order.id} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
                   <td className="py-3 font-mono text-xs text-primary">{order.orderNumber}</td>
-                  <td className="py-3">Table {order.table?.name} • {order.seat?.label}</td>
+                  <td className="py-3">Table {order.table?.name} · {order.seat?.label}</td>
                   <td className="py-3">{order.waiter?.name}</td>
                   <td className="py-3"><Badge status={order.status} /></td>
                   <td className="py-3 text-muted-foreground">{formatDateTime(order.createdAt)}</td>

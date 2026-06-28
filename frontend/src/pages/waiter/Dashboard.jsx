@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { formatCurrency, cn } from '../../lib/utils';
-import { Plus, X, ShoppingCart, CheckCircle, Bell, Printer, Eye, Lock } from 'lucide-react';
+import { Plus, X, ShoppingCart, CheckCircle, Bell, Eye, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 import Badge from '../../components/shared/Badge';
 import { getSocket } from '../../lib/socket';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,6 +18,7 @@ export default function WaiterDashboard() {
   const [menuType, setMenuType] = useState('FOOD');
   const [orderNotes, setOrderNotes] = useState('');
   const [previewBill, setPreviewBill] = useState(null);
+  const [ordersExpanded, setOrdersExpanded] = useState(false);
   const qc = useQueryClient();
 
   const { user: currentUser } = useAuthStore();
@@ -40,7 +41,6 @@ export default function WaiterDashboard() {
     refetchInterval: 10000,
   });
 
-  // Fetch all open orders for the selected table to check seat ownership
   const { data: tableOrdersData } = useQuery({
     queryKey: ['table-orders', selectedTable?.id],
     queryFn: () => api.get(`/orders?tableId=${selectedTable?.id}&status=PENDING,PREPARING,READY,SERVED`),
@@ -48,11 +48,9 @@ export default function WaiterDashboard() {
   });
   const tableOrders = tableOrdersData?.data || [];
 
-  // Get the open order for a specific seat (ignoring paid bills)
   const getSeatOrder = (seatId) =>
     tableOrders.find(o => o.seatId === seatId && o.bill?.status !== 'PAID');
 
-  // Check if current waiter owns the order on this seat
   const isMySeat = (seatId) => {
     const order = getSeatOrder(seatId);
     return order ? order.waiterId === currentUser?.id : false;
@@ -128,43 +126,205 @@ export default function WaiterDashboard() {
   const buildPreview = (order) => {
     const items = order.items || [];
     const subtotal = items.reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0);
-    return {
-      billNumber: 'PREVIEW',
-      subtotal, tax: 0, discount: 0, total: subtotal,
-      order: { ...order, items },
-    };
+    return { billNumber: 'PREVIEW', subtotal, tax: 0, discount: 0, total: subtotal, order: { ...order, items } };
   };
 
   const readyOrders = (myOrders?.data || []).filter(o =>
-  (!o.kitchenOrder || ['READY', 'SERVED'].includes(o.kitchenOrder?.status)) &&
-  (!o.barOrder || ['READY', 'SERVED'].includes(o.barOrder?.status)) &&
-  o.status !== 'SERVED'
-);
+    (!o.kitchenOrder || ['READY', 'SERVED'].includes(o.kitchenOrder?.status)) &&
+    (!o.barOrder     || ['READY', 'SERVED'].includes(o.barOrder?.status)) &&
+    o.status !== 'SERVED'
+  );
 
   const handleSeatClick = (seat) => {
-    if (seat.isOccupied && !isMySeat(seat.id)) return; // blocked
+    if (seat.isOccupied && !isMySeat(seat.id)) return;
     setSelectedSeat(seat);
     setStep('menu');
     setActiveCategory(null);
   };
 
   const getTableCardClass = (table) => {
-    const base = 'table-card h-32';
+    const base = 'table-card h-28 sm:h-32';
     switch (table.status) {
-      case 'AVAILABLE':
-        return cn(base, 'border-green-500/40 bg-green-500/5 hover:bg-green-500/10 hover:border-green-500');
-      case 'OCCUPIED':
-        return cn(base, 'border-red-500/40 bg-red-500/5 hover:bg-red-500/10 hover:border-red-500');
-      case 'WAITING_PAYMENT':
-        return cn(base, 'border-orange-500/40 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500');
-      default:
-        return cn(base, 'border-border');
+      case 'AVAILABLE':      return cn(base, 'border-green-500/40 bg-green-500/5 hover:bg-green-500/10 hover:border-green-500');
+      case 'OCCUPIED':       return cn(base, 'border-red-500/40 bg-red-500/5 hover:bg-red-500/10 hover:border-red-500');
+      case 'WAITING_PAYMENT':return cn(base, 'border-orange-500/40 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500');
+      default:               return cn(base, 'border-border');
     }
   };
 
+  const totalOrderCount = (myOrders?.data || []).length + (servedOrders?.data || []).length;
+
+  // ── Shared orders panel content (used in both mobile + desktop) ──────────
+  const OrdersPanel = () => (
+    <>
+      {(myOrders?.data || []).map(order => {
+        const kitchenReady = !order.kitchenOrder || ['READY', 'SERVED'].includes(order.kitchenOrder?.status);
+        const barReady     = !order.barOrder     || ['READY', 'SERVED'].includes(order.barOrder?.status);
+        const allReady     = kitchenReady && barReady;
+        return (
+          <div key={order.id} className={cn(
+            'bg-background border rounded-xl p-3 space-y-2 text-sm',
+            allReady ? 'border-green-500/60 bg-green-500/5 shadow-green-500/10 shadow-lg' : 'border-border'
+          )}>
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs text-primary font-bold">#{order.orderNumber?.slice(-6)}</span>
+              <span className={cn('text-xs px-2 py-0.5 rounded-full font-semibold',
+                order.status === 'PENDING'   ? 'bg-yellow-500/10 text-yellow-400' :
+                order.status === 'PREPARING' ? 'bg-blue-500/10 text-blue-400' :
+                'bg-green-500/10 text-green-400'
+              )}>{order.status}</span>
+            </div>
+            <p className="font-semibold">🪑 Table {order.table?.name} — {order.seat?.label}</p>
+            {order.kitchenOrder && (
+              <div className={cn('flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium',
+                order.kitchenOrder.status === 'READY'     ? 'bg-green-500/15 text-green-400' :
+                order.kitchenOrder.status === 'PREPARING' ? 'bg-blue-500/10 text-blue-400' : 'bg-accent text-muted-foreground'
+              )}>
+                <span>👨‍🍳 Kitchen:</span><span className="font-bold">{order.kitchenOrder.status}</span>
+                {order.kitchenOrder.status === 'READY' && <span className="ml-auto">✅</span>}
+              </div>
+            )}
+            {order.barOrder && (
+              <div className={cn('flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium',
+                order.barOrder.status === 'READY'     ? 'bg-green-500/15 text-green-400' :
+                order.barOrder.status === 'PREPARING' ? 'bg-blue-500/10 text-blue-400' : 'bg-accent text-muted-foreground'
+              )}>
+                <span>🍺 Bar:</span><span className="font-bold">{order.barOrder.status}</span>
+                {order.barOrder.status === 'READY' && <span className="ml-auto">✅</span>}
+              </div>
+            )}
+            {allReady && (
+              <button onClick={() => markServed.mutate(order.id)} disabled={markServed.isPending}
+                className="w-full py-2 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-lg disabled:opacity-50 flex items-center justify-center gap-1">
+                <CheckCircle className="w-3.5 h-3.5" />
+                {markServed.isPending ? 'Marking…' : '✅ Mark as SERVED'}
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      {totalOrderCount === 0 && (
+        <div className="text-center py-8 text-muted-foreground">
+          <ShoppingCart className="w-10 h-10 mx-auto mb-2 opacity-20" />
+          <p className="text-sm">No active orders</p>
+        </div>
+      )}
+
+      {(servedOrders?.data || []).length > 0 && (
+        <>
+          <div className="pt-2 pb-1 px-1">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">🧾 Served — Bill</p>
+          </div>
+          {(servedOrders?.data || []).map(order => {
+            const hasBill   = !!order.bill;
+            const billPaid  = order.bill?.status === 'PAID';
+            const billRequested = order.billRequested;
+            return (
+              <div key={order.id} className={cn(
+                'bg-background border rounded-xl p-3 space-y-2 text-sm',
+                hasBill && !billPaid ? 'border-orange-500/50 bg-orange-500/5' :
+                billPaid            ? 'border-green-500/50 bg-green-500/5' :
+                billRequested       ? 'border-blue-500/40 bg-blue-500/5' : 'border-border'
+              )}>
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs text-primary font-bold">#{order.orderNumber?.slice(-6)}</span>
+                  {billPaid        && <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 font-bold">✓ PAID</span>}
+                  {hasBill && !billPaid && <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">Bill Ready</span>}
+                  {!hasBill && billRequested && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">Waiting…</span>}
+                </div>
+                <p className="font-semibold">🪑 Table {order.table?.name} — {order.seat?.label}</p>
+                {hasBill && (
+                  <div className="flex items-center justify-between bg-accent/50 rounded-lg px-3 py-2">
+                    <span className="text-xs text-muted-foreground">Bill Total</span>
+                    <span className="font-bold text-primary">{formatCurrency(parseFloat(order.bill?.total || 0))}</span>
+                  </div>
+                )}
+                <button onClick={() => setPreviewBill(buildPreview(order))}
+                  className="w-full py-1.5 bg-accent hover:bg-border border border-border rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors">
+                  <Eye className="w-3.5 h-3.5" /> Preview Bill for Customer
+                </button>
+                {!hasBill && !billPaid && (
+                  <button onClick={() => requestBill.mutate(order.id)} disabled={billRequested || requestBill.isPending}
+                    className={cn('w-full py-2 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5',
+                      billRequested ? 'bg-blue-500/10 text-blue-400 cursor-not-allowed' : 'bg-primary hover:bg-primary/90 text-white'
+                    )}>
+                    🧾 {billRequested ? 'Bill Requested — Waiting for Cashier' : 'Request Bill from Cashier'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
+    </>
+  );
+
+  // ── Cart panel content ────────────────────────────────────────────────────
+  const CartPanel = () => (
+    <>
+      {selectedSeat?.isOccupied && seatOrderData && (
+        <div className="border-b border-border bg-accent/30 p-3 max-h-44 overflow-auto">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+            📋 Already Ordered — #{seatOrderData.orderNumber?.slice(-6)}
+          </p>
+          <div className="space-y-1">
+            {(seatOrderData.items || []).map(item => (
+              <div key={item.id} className="flex justify-between text-xs">
+                <span className="text-muted-foreground">{item.quantity}× {item.product?.name}</span>
+                <span className="text-foreground font-medium">{formatCurrency(parseFloat(item.unitPrice) * item.quantity)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between text-xs font-semibold mt-2 pt-2 border-t border-border/50">
+            <span>Existing total</span>
+            <span className="text-primary">
+              {formatCurrency((seatOrderData.items || []).reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0))}
+            </span>
+          </div>
+        </div>
+      )}
+      <div className="flex-1 overflow-auto p-4 space-y-3">
+        <AnimatePresence>
+          {cart.map(item => (
+            <motion.div key={item.productId} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+              className="flex items-center gap-3 bg-accent/50 rounded-lg p-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{item.product.name}</p>
+                <p className="text-xs text-primary">{formatCurrency(parseFloat(item.product.price) * item.quantity)}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => updateQty(item.productId, item.quantity - 1)} className="w-6 h-6 rounded bg-accent hover:bg-border text-xs font-bold">-</button>
+                <span className="w-6 text-center text-sm font-semibold">{item.quantity}</span>
+                <button onClick={() => updateQty(item.productId, item.quantity + 1)} className="w-6 h-6 rounded bg-accent hover:bg-border text-xs font-bold">+</button>
+              </div>
+              <button onClick={() => removeFromCart(item.productId)} className="text-muted-foreground hover:text-red-400">
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+      <div className="p-4 border-t border-border space-y-3">
+        <textarea placeholder="Order notes..." value={orderNotes} onChange={e => setOrderNotes(e.target.value)}
+          className="w-full text-sm bg-accent border border-border rounded-lg p-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary" rows={2} />
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Total</span>
+          <span className="font-bold text-primary text-lg">{formatCurrency(cartTotal)}</span>
+        </div>
+        <button onClick={submitOrder} disabled={cart.length === 0 || createOrder.isPending}
+          className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-all">
+          {createOrder.isPending ? 'Sending…' : selectedSeat?.isOccupied ? '➕ Add to Existing Order' : '🚀 Send Order'}
+        </button>
+      </div>
+    </>
+  );
+
   return (
-    <div className="flex gap-4 h-[calc(100vh-112px)]">
-      <div className="flex-1 overflow-auto space-y-4">
+    <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[calc(100vh-112px)]">
+
+      {/* ── Main content area ── */}
+      <div className="flex-1 overflow-auto space-y-4 min-h-0">
 
         {readyOrders.length > 0 && (
           <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4">
@@ -184,17 +344,14 @@ export default function WaiterDashboard() {
         {step === 'tables' && (
           <div>
             <h2 className="text-xl font-bold mb-4">Select Table</h2>
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {(tables?.data || []).map(table => (
-                <button
-                  key={table.id}
-                  onClick={() => { setSelectedTable(table); setStep('seats'); }}
-                  className={getTableCardClass(table)}
-                >
-                  <span className="text-3xl font-black">{table.name}</span>
+                <button key={table.id} onClick={() => { setSelectedTable(table); setStep('seats'); }}
+                  className={getTableCardClass(table)}>
+                  <span className="text-2xl sm:text-3xl font-black">{table.name}</span>
                   <Badge status={table.status} />
                   {table.status === 'WAITING_PAYMENT' && (
-                    <span className="text-[10px] text-orange-400 font-semibold">⏳ Awaiting payment on a seat</span>
+                    <span className="text-[10px] text-orange-400 font-semibold">⏳ Awaiting payment</span>
                   )}
                   <span className="text-xs text-muted-foreground">{table.seats?.length} seats</span>
                 </button>
@@ -215,14 +372,10 @@ export default function WaiterDashboard() {
             <div className="flex flex-wrap gap-3">
               {selectedTable.seats?.map(seat => {
                 const occupied = seat.isOccupied;
-                const mine = occupied && isMySeat(seat.id);
-                const locked = occupied && !mine;
-
+                const mine     = occupied && isMySeat(seat.id);
+                const locked   = occupied && !mine;
                 return (
-                  <button
-                    key={seat.id}
-                    onClick={() => handleSeatClick(seat)}
-                    disabled={locked}
+                  <button key={seat.id} onClick={() => handleSeatClick(seat)} disabled={locked}
                     className={cn(
                       'w-16 h-16 rounded-xl font-bold text-sm border-2 transition-all',
                       locked
@@ -230,10 +383,9 @@ export default function WaiterDashboard() {
                         : mine
                           ? 'border-red-500/60 bg-red-500/10 text-red-300 hover:bg-red-500/20'
                           : 'border-green-500/50 bg-green-500/5 text-green-300 hover:bg-green-500/15 hover:border-green-400'
-                    )}
-                  >
+                    )}>
                     {seat.label}
-                    {mine && <div className="text-[9px] mt-0.5 text-red-400">+ADD</div>}
+                    {mine   && <div className="text-[9px] mt-0.5 text-red-400">+ADD</div>}
                     {locked && <div className="text-[9px] mt-0.5"><Lock className="w-2.5 h-2.5 mx-auto" /></div>}
                   </button>
                 );
@@ -253,7 +405,6 @@ export default function WaiterDashboard() {
                 </span>
               )}
             </div>
-
             <div className="flex gap-2 mb-4">
               {['FOOD', 'DRINK'].map(t => (
                 <button key={t} onClick={() => { setMenuType(t); setActiveCategory(null); }}
@@ -264,28 +415,23 @@ export default function WaiterDashboard() {
                 </button>
               ))}
             </div>
-
             <div className="flex flex-wrap gap-2 mb-4">
               {(categories?.data || []).map(cat => (
                 <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
                   className={cn('px-3 py-1.5 rounded-xl text-sm font-medium transition-all border',
-                    activeCategory === cat.id
-                      ? 'bg-primary text-white border-primary'
-                      : 'bg-accent hover:bg-accent/80 border-border'
+                    activeCategory === cat.id ? 'bg-primary text-white border-primary' : 'bg-accent hover:bg-accent/80 border-border'
                   )}>
                   {cat.icon && <span className="mr-1">{cat.icon}</span>}{cat.name}
                 </button>
               ))}
             </div>
-
-            {activeCategory && (
+            {activeCategory ? (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {(products?.data || []).map(product => {
                   const inCart = cart.find(i => i.productId === product.id);
                   return (
                     <button key={product.id} onClick={() => addToCart(product)}
-                      className={cn(
-                        'bg-card border rounded-xl p-4 text-left transition-all hover:shadow-md active:scale-95',
+                      className={cn('bg-card border rounded-xl p-4 text-left transition-all hover:shadow-md active:scale-95',
                         inCart ? 'border-primary/60 bg-primary/5' : 'border-border hover:border-primary/40'
                       )}>
                       <p className="font-semibold text-sm">{product.name}</p>
@@ -299,214 +445,81 @@ export default function WaiterDashboard() {
                     </button>
                   );
                 })}
-                {!products?.data?.length && activeCategory && (
+                {!products?.data?.length && (
                   <p className="col-span-4 text-sm text-muted-foreground py-8 text-center">No items in this category</p>
                 )}
               </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">← Select a category above</p>
             )}
-            {!activeCategory && <p className="text-sm text-muted-foreground">← Select a category above</p>}
+          </div>
+        )}
+
+        {/* ── Mobile cart (shown inline when on menu step) ── */}
+        {step === 'menu' && (
+          <div className="lg:hidden bg-card border border-border rounded-xl flex flex-col mt-2">
+            <div className="p-4 border-b border-border flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5 text-primary" />
+              <h3 className="font-semibold">{selectedSeat?.isOccupied ? 'Add Items' : 'Order Cart'}</h3>
+              <span className="ml-auto text-sm text-muted-foreground">{cart.length} items</span>
+            </div>
+            <CartPanel />
+          </div>
+        )}
+
+        {/* ── Mobile orders accordion (shown when not on menu step) ── */}
+        {step !== 'menu' && (
+          <div className="lg:hidden bg-card border border-border rounded-xl overflow-hidden mt-2">
+            <button
+              onClick={() => setOrdersExpanded(o => !o)}
+              className="w-full p-4 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-primary" />
+                <h3 className="font-semibold">My Orders</h3>
+                {totalOrderCount > 0 && (
+                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                    {totalOrderCount}
+                  </span>
+                )}
+              </div>
+              {ordersExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </button>
+            {ordersExpanded && (
+              <div className="p-3 pt-0 space-y-3 max-h-96 overflow-auto">
+                <OrdersPanel />
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {step === 'menu' ? (
-        <div className="w-80 bg-card border border-border rounded-xl flex flex-col h-full">
-          <div className="p-4 border-b border-border flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-primary" />
-            <h3 className="font-semibold">{selectedSeat?.isOccupied ? 'Add Items' : 'Order Cart'}</h3>
-            <span className="ml-auto text-sm text-muted-foreground">{cart.length} new</span>
-          </div>
-
-          {selectedSeat?.isOccupied && seatOrderData && (
-            <div className="border-b border-border bg-accent/30 p-3 max-h-44 overflow-auto">
-              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                📋 Already Ordered — #{seatOrderData.orderNumber?.slice(-6)}
-              </p>
-              <div className="space-y-1">
-                {(seatOrderData.items || []).map(item => (
-                  <div key={item.id} className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">{item.quantity}× {item.product?.name}</span>
-                    <span className="text-foreground font-medium">
-                      {formatCurrency(parseFloat(item.unitPrice) * item.quantity)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-between text-xs font-semibold mt-2 pt-2 border-t border-border/50">
-                <span>Existing total</span>
-                <span className="text-primary">
-                  {formatCurrency((seatOrderData.items || []).reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0))}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="flex-1 overflow-auto p-4 space-y-3">
-            <AnimatePresence>
-              {cart.map(item => (
-                <motion.div key={item.productId} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-                  className="flex items-center gap-3 bg-accent/50 rounded-lg p-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{item.product.name}</p>
-                    <p className="text-xs text-primary">{formatCurrency(parseFloat(item.product.price) * item.quantity)}</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => updateQty(item.productId, item.quantity - 1)} className="w-6 h-6 rounded bg-accent hover:bg-border text-xs font-bold">-</button>
-                    <span className="w-6 text-center text-sm font-semibold">{item.quantity}</span>
-                    <button onClick={() => updateQty(item.productId, item.quantity + 1)} className="w-6 h-6 rounded bg-accent hover:bg-border text-xs font-bold">+</button>
-                  </div>
-                  <button onClick={() => removeFromCart(item.productId)} className="text-muted-foreground hover:text-red-400">
-                    <X className="w-4 h-4" />
-                  </button>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-          <div className="p-4 border-t border-border space-y-3">
-            <textarea placeholder="Order notes..." value={orderNotes} onChange={e => setOrderNotes(e.target.value)}
-              className="w-full text-sm bg-accent border border-border rounded-lg p-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary" rows={2} />
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Total</span>
-              <span className="font-bold text-primary text-lg">{formatCurrency(cartTotal)}</span>
-            </div>
-            <button onClick={submitOrder} disabled={cart.length === 0 || createOrder.isPending}
-              className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-all">
-              {createOrder.isPending ? 'Sending…' : selectedSeat?.isOccupied ? '➕ Add to Existing Order' : '🚀 Send Order'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="w-80 bg-card border border-border rounded-xl flex flex-col h-full">
-          <div className="p-4 border-b border-border flex items-center justify-between">
-            <h3 className="font-semibold">My Orders</h3>
-            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
-              {(myOrders?.data || []).length + (servedOrders?.data || []).length}
+      {/* ── Desktop sidebar panel ── */}
+      <div className="hidden lg:flex w-80 bg-card border border-border rounded-xl flex-col h-full">
+        <div className="p-4 border-b border-border flex items-center gap-2">
+          <ShoppingCart className="w-5 h-5 text-primary" />
+          <h3 className="font-semibold">
+            {step === 'menu' ? (selectedSeat?.isOccupied ? 'Add Items' : 'Order Cart') : 'My Orders'}
+          </h3>
+          {step !== 'menu' && totalOrderCount > 0 && (
+            <span className="ml-auto text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+              {totalOrderCount}
             </span>
-          </div>
-          <div className="flex-1 overflow-auto p-3 space-y-3">
-
-            {(myOrders?.data || []).map(order => {
-              const kitchenReady = !order.kitchenOrder || ['READY', 'SERVED'].includes(order.kitchenOrder?.status);
-              const barReady = !order.barOrder || ['READY', 'SERVED'].includes(order.barOrder?.status);;
-              const allReady = kitchenReady && barReady;
-              return (
-                <div key={order.id} className={cn(
-                  'bg-background border rounded-xl p-3 space-y-2 text-sm',
-                  allReady ? 'border-green-500/60 bg-green-500/5 shadow-green-500/10 shadow-lg' : 'border-border'
-                )}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-primary font-bold">#{order.orderNumber?.slice(-6)}</span>
-                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-semibold',
-                      order.status === 'PENDING' ? 'bg-yellow-500/10 text-yellow-400' :
-                      order.status === 'PREPARING' ? 'bg-blue-500/10 text-blue-400' :
-                      'bg-green-500/10 text-green-400'
-                    )}>{order.status}</span>
-                  </div>
-                  <p className="font-semibold">🪑 Table {order.table?.name} — {order.seat?.label}</p>
-
-                  {order.kitchenOrder && (
-                    <div className={cn('flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium',
-                      order.kitchenOrder.status === 'READY' ? 'bg-green-500/15 text-green-400' :
-                      order.kitchenOrder.status === 'PREPARING' ? 'bg-blue-500/10 text-blue-400' : 'bg-accent text-muted-foreground'
-                    )}>
-                      <span>👨‍🍳 Kitchen:</span><span className="font-bold">{order.kitchenOrder.status}</span>
-                      {order.kitchenOrder.status === 'READY' && <span className="ml-auto">✅</span>}
-                    </div>
-                  )}
-                  {order.barOrder && (
-                    <div className={cn('flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium',
-                      order.barOrder.status === 'READY' ? 'bg-green-500/15 text-green-400' :
-                      order.barOrder.status === 'PREPARING' ? 'bg-blue-500/10 text-blue-400' : 'bg-accent text-muted-foreground'
-                    )}>
-                      <span>🍺 Bar:</span><span className="font-bold">{order.barOrder.status}</span>
-                      {order.barOrder.status === 'READY' && <span className="ml-auto">✅</span>}
-                    </div>
-                  )}
-
-                  {allReady && (
-                    <button onClick={() => markServed.mutate(order.id)} disabled={markServed.isPending}
-                      className="w-full py-2 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-lg disabled:opacity-50 flex items-center justify-center gap-1">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      {markServed.isPending ? 'Marking…' : '✅ Mark as SERVED'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-
-            {(myOrders?.data || []).length === 0 && (servedOrders?.data || []).length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                <ShoppingCart className="w-10 h-10 mx-auto mb-2 opacity-20" />
-                <p className="text-sm">No active orders</p>
-              </div>
-            )}
-
-            {(servedOrders?.data || []).length > 0 && (
-              <>
-                <div className="pt-2 pb-1 px-1">
-                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">🧾 Served — Bill</p>
-                </div>
-                {(servedOrders?.data || []).map(order => {
-                  const billRequested = order.billRequested;
-                  const hasBill = !!order.bill;
-                  const billPaid = order.bill?.status === 'PAID';
-                  return (
-                    <div key={order.id} className={cn(
-                      'bg-background border rounded-xl p-3 space-y-2 text-sm',
-                      hasBill && !billPaid ? 'border-orange-500/50 bg-orange-500/5' :
-                      billPaid ? 'border-green-500/50 bg-green-500/5' :
-                      billRequested ? 'border-blue-500/40 bg-blue-500/5' : 'border-border'
-                    )}>
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs text-primary font-bold">#{order.orderNumber?.slice(-6)}</span>
-                        {billPaid && <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 font-bold">✓ PAID</span>}
-                        {hasBill && !billPaid && <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">Bill Ready</span>}
-                        {!hasBill && billRequested && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">Waiting…</span>}
-                      </div>
-                      <p className="font-semibold">🪑 Table {order.table?.name} — {order.seat?.label}</p>
-
-                      {hasBill && (
-                        <div className="flex items-center justify-between bg-accent/50 rounded-lg px-3 py-2">
-                          <span className="text-xs text-muted-foreground">Bill Total</span>
-                          <span className="font-bold text-primary">{formatCurrency(parseFloat(order.bill?.total || 0))}</span>
-                        </div>
-                      )}
-
-                      <button
-                        onClick={() => setPreviewBill(buildPreview(order))}
-                        className="w-full py-1.5 bg-accent hover:bg-border border border-border rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        Preview Bill for Customer
-                      </button>
-
-                      {!hasBill && !billPaid && (
-                        <button
-                          onClick={() => requestBill.mutate(order.id)}
-                          disabled={billRequested || requestBill.isPending}
-                          className={cn(
-                            'w-full py-2 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5',
-                            billRequested ? 'bg-blue-500/10 text-blue-400 cursor-not-allowed' : 'bg-primary hover:bg-primary/90 text-white'
-                          )}>
-                          🧾 {billRequested ? 'Bill Requested — Waiting for Cashier' : 'Request Bill from Cashier'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </>
-            )}
-          </div>
+          )}
+          {step === 'menu' && (
+            <span className="ml-auto text-sm text-muted-foreground">{cart.length} new</span>
+          )}
         </div>
-      )}
+        {step === 'menu' ? (
+          <CartPanel />
+        ) : (
+          <div className="flex-1 overflow-auto p-3 space-y-3">
+            <OrdersPanel />
+          </div>
+        )}
+      </div>
 
-      {previewBill && (
-        <PrintBill
-          bill={previewBill}
-          onClose={() => setPreviewBill(null)}
-          isPreview
-        />
-      )}
+      {previewBill && <PrintBill bill={previewBill} onClose={() => setPreviewBill(null)} isPreview />}
     </div>
   );
 }
