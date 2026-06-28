@@ -154,7 +154,7 @@ export default function WaiterDashboard() {
 
   const totalOrderCount = (myOrders?.data || []).length + (servedOrders?.data || []).length;
 
-  // ── Shared orders panel content (used in both mobile + desktop) ──────────
+  // ── Shared orders panel content ──────────────────────────────────────────
   const OrdersPanel = () => (
     <>
       {(myOrders?.data || []).map(order => {
@@ -321,10 +321,13 @@ export default function WaiterDashboard() {
   );
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[calc(100vh-112px)]">
+    // KEY FIX: removed h-[calc(100vh-112px)] from the root — this was creating a
+    // fixed-height container that swallowed pointer events above the nav cutoff.
+    // The desktop sidebar now self-manages its height with max-h instead of h-full.
+    <div className="flex flex-col lg:flex-row gap-4">
 
       {/* ── Main content area ── */}
-      <div className="flex-1 overflow-auto space-y-4 min-h-0">
+      <div className="flex-1 space-y-4">
 
         {readyOrders.length > 0 && (
           <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4">
@@ -455,7 +458,7 @@ export default function WaiterDashboard() {
           </div>
         )}
 
-        {/* ── Mobile cart (shown inline when on menu step) ── */}
+        {/* ── Mobile cart (shown inline below menu when on menu step) ── */}
         {step === 'menu' && (
           <div className="lg:hidden bg-card border border-border rounded-xl flex flex-col mt-2">
             <div className="p-4 border-b border-border flex items-center gap-2">
@@ -467,7 +470,7 @@ export default function WaiterDashboard() {
           </div>
         )}
 
-        {/* ── Mobile orders accordion (shown when not on menu step) ── */}
+        {/* ── Mobile orders accordion (shown on tables/seats steps) ── */}
         {step !== 'menu' && (
           <div className="lg:hidden bg-card border border-border rounded-xl overflow-hidden mt-2">
             <button
@@ -494,9 +497,10 @@ export default function WaiterDashboard() {
         )}
       </div>
 
-      {/* ── Desktop sidebar panel ── */}
-      <div className="hidden lg:flex w-80 bg-card border border-border rounded-xl flex-col h-full">
-        <div className="p-4 border-b border-border flex items-center gap-2">
+      {/* ── Desktop sidebar ── */}
+      {/* Uses sticky + max-h instead of h-full so it never clips the page */}
+      <div className="hidden lg:flex w-80 flex-col bg-card border border-border rounded-xl sticky top-4 self-start max-h-[calc(100vh-140px)]">
+        <div className="p-4 border-b border-border flex items-center gap-2 flex-shrink-0">
           <ShoppingCart className="w-5 h-5 text-primary" />
           <h3 className="font-semibold">
             {step === 'menu' ? (selectedSeat?.isOccupied ? 'Add Items' : 'Order Cart') : 'My Orders'}
@@ -511,7 +515,9 @@ export default function WaiterDashboard() {
           )}
         </div>
         {step === 'menu' ? (
-          <CartPanel />
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <CartPanel />
+          </div>
         ) : (
           <div className="flex-1 overflow-auto p-3 space-y-3">
             <OrdersPanel />
