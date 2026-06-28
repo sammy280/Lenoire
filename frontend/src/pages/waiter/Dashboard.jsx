@@ -136,10 +136,10 @@ export default function WaiterDashboard() {
   };
 
   const readyOrders = (myOrders?.data || []).filter(o =>
-    (o.kitchenOrder?.status === 'READY' || !o.kitchenOrder) &&
-    (o.barOrder?.status === 'READY' || !o.barOrder) &&
-    o.status !== 'SERVED'
-  );
+  (!o.kitchenOrder || ['READY', 'SERVED'].includes(o.kitchenOrder?.status)) &&
+  (!o.barOrder || ['READY', 'SERVED'].includes(o.barOrder?.status)) &&
+  o.status !== 'SERVED'
+);
 
   const handleSeatClick = (seat) => {
     if (seat.isOccupied && !isMySeat(seat.id)) return; // blocked
@@ -386,8 +386,8 @@ export default function WaiterDashboard() {
           <div className="flex-1 overflow-auto p-3 space-y-3">
 
             {(myOrders?.data || []).map(order => {
-              const kitchenReady = !order.kitchenOrder || order.kitchenOrder?.status === 'READY';
-              const barReady = !order.barOrder || order.barOrder?.status === 'READY';
+              const kitchenReady = !order.kitchenOrder || ['READY', 'SERVED'].includes(order.kitchenOrder?.status);
+              const barReady = !order.barOrder || ['READY', 'SERVED'].includes(order.barOrder?.status);;
               const allReady = kitchenReady && barReady;
               return (
                 <div key={order.id} className={cn(
