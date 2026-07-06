@@ -16,6 +16,7 @@ enum Role {
   BAR
   DELIVERY_RIDER
   STOREKEEPER
+  IT
 }
 
 enum LoginType {
@@ -28,7 +29,9 @@ enum OrderStatus {
   PREPARING
   READY
   SERVED
+  COMPLETED
   CANCELLED
+  EXPIRED
 }
 
 enum BillStatus {
@@ -189,6 +192,8 @@ model User {
   createdOrders   Order[]        @relation("CreatedByOrders")
   kitchenUpdates  KitchenOrder[] @relation("KitchenStaffUpdates")
   barUpdates      BarOrder[]     @relation("BarStaffUpdates")
+  kitchenCancellations KitchenOrder[] @relation("KitchenCancelledBy")
+  barCancellations     BarOrder[]     @relation("BarCancelledBy")
   cashierBills    Bill[]
   cashierPayments Payment[]
   payrollPaid     Payroll[]      @relation("PaidByPayroll")
@@ -347,11 +352,15 @@ model Order {
   notes        String?
   cancelReason   String?
   cancelledBy    String?
+  cancelledAt    DateTime?
   isSent         Boolean      @default(false)
   billRequested  Boolean      @default(false)
   returnRequests ReturnRequest[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+
+  @@index([createdAt])
+  @@index([status])
 }
 
 model OrderItem {
@@ -369,33 +378,47 @@ model OrderItem {
 }
 
 model KitchenOrder {
-  id        String      @id @default(cuid())
-  orderId   String      @unique
-  order     Order       @relation(fields: [orderId], references: [id])
-  status    OrderStatus @default(PENDING)
-  staffId   String?
-  staff     User?       @relation("KitchenStaffUpdates", fields: [staffId], references: [id])
-  notes     String?
-  startedAt DateTime?
-  readyAt   DateTime?
-  currentBatch Int      @default(1)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id            String      @id @default(cuid())
+  orderId       String      @unique
+  order         Order       @relation(fields: [orderId], references: [id])
+  status        OrderStatus @default(PENDING)
+  staffId       String?
+  staff         User?       @relation("KitchenStaffUpdates", fields: [staffId], references: [id])
+  notes         String?
+  startedAt     DateTime?
+  readyAt       DateTime?
+  currentBatch  Int         @default(1)
+  cancelReason  String?
+  cancelledById String?
+  cancelledBy   User?       @relation("KitchenCancelledBy", fields: [cancelledById], references: [id])
+  cancelledAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([createdAt])
+  @@index([status])
 }
 
 model BarOrder {
-  id        String      @id @default(cuid())
-  orderId   String      @unique
-  order     Order       @relation(fields: [orderId], references: [id])
-  status    OrderStatus @default(PENDING)
-  staffId   String?
-  staff     User?       @relation("BarStaffUpdates", fields: [staffId], references: [id])
-  notes     String?
-  startedAt DateTime?
-  readyAt   DateTime?
-  currentBatch Int      @default(1)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id            String      @id @default(cuid())
+  orderId       String      @unique
+  order         Order       @relation(fields: [orderId], references: [id])
+  status        OrderStatus @default(PENDING)
+  staffId       String?
+  staff         User?       @relation("BarStaffUpdates", fields: [staffId], references: [id])
+  notes         String?
+  startedAt     DateTime?
+  readyAt       DateTime?
+  currentBatch  Int         @default(1)
+  cancelReason  String?
+  cancelledById String?
+  cancelledBy   User?       @relation("BarCancelledBy", fields: [cancelledById], references: [id])
+  cancelledAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([createdAt])
+  @@index([status])
 }
 
 model Bill {

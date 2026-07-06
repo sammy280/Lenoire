@@ -86,8 +86,8 @@ const updateUser = async (req, res, next) => {
         update: { phone, address, nationalId, profilePicture, emergencyContact, emergencyPhone },
       },
     };
-    // Only ADMIN can change roles
-    if (role && req.user.role === 'ADMIN') {
+    // ADMIN and IT (super-admin) can change roles
+    if (role && (req.user.role === 'ADMIN' || req.user.role === 'IT')) {
       userData.role = role;
     }
     const user = await prisma.user.update({

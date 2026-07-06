@@ -42,7 +42,13 @@ const authenticate = async (req, res, next) => {
   }
 };
 
+// IT is a super-admin role: it passes every authorize() check regardless of
+// which roles were listed, so it automatically has unrestricted access to
+// every route in the system without needing IT added to each route's role list.
 const authorize = (...roles) => (req, res, next) => {
+  if (req.user.role === 'IT') {
+    return next();
+  }
   if (!roles.includes(req.user.role)) {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
