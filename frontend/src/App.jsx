@@ -51,16 +51,21 @@ import TransportPage from './pages/shared/Transport';
 import SalaryManagementPage from './pages/shared/SalaryManagement';
 import StorekeeperDashboard from './pages/storekeeper/Dashboard';
 
+// IT is a super-admin role: it bypasses every role check below, the same way
+// the backend's authorize() middleware lets IT through regardless of which
+// roles were listed. This means IT never needs to be added to the roles=[...]
+// array on any individual route — one check here covers all of them.
 const ProtectedRoute = ({ children, roles }) => {
   const { isAuthenticated, user } = useAuthStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role === 'IT') return children;
   if (roles && !roles.includes(user?.role)) return <Navigate to="/unauthorized" replace />;
   return children;
 };
 
 const RoleHome = () => {
   const { user } = useAuthStore();
-  const roleMap = { ADMIN: '/admin', MANAGER: '/manager', CASHIER: '/cashier', WAITER: '/waiter', KITCHEN: '/kitchen', BAR: '/bar', STOREKEEPER: '/storekeeper' };
+  const roleMap = { ADMIN: '/admin', MANAGER: '/manager', CASHIER: '/cashier', WAITER: '/waiter', KITCHEN: '/kitchen', BAR: '/bar', STOREKEEPER: '/storekeeper', IT: '/admin' };
   return <Navigate to={roleMap[user?.role] || '/login'} replace />;
 };
 

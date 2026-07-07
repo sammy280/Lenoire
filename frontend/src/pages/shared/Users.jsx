@@ -8,7 +8,7 @@ import { Plus, Search, UserX, UserCheck, Camera, Eye, Edit2, Activity } from 'lu
 import { useAuthStore } from '../../store/authStore';
 import toast from 'react-hot-toast';
 
-const ROLES = ['ADMIN', 'MANAGER', 'CASHIER', 'WAITER', 'KITCHEN', 'BAR', 'DELIVERY_RIDER'];
+const ROLES = ['ADMIN', 'MANAGER', 'CASHIER', 'WAITER', 'KITCHEN', 'BAR', 'STOREKEEPER', 'DELIVERY_RIDER', 'IT'];
 const PIN_ROLES = ['WAITER', 'KITCHEN', 'BAR'];
 
 function Avatar({ user, size = 'md' }) {
