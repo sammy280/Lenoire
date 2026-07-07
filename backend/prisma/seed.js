@@ -17,11 +17,12 @@ async function main() {
   const denisePin   = await bcrypt.hash('2222', 12);
   const poulletPin  = await bcrypt.hash('4444', 12);
   const cleverPin   = await bcrypt.hash('5555', 12);
-  const umunuPin    = await bcrypt.hash('6666', 12);
-  const umunPin     = await bcrypt.hash('7777', 12);
+  const Bonnie     = await bcrypt.hash('6666', 12);
+  const muzehe     = await bcrypt.hash('7777', 12);
   const safiBarPin  = await bcrypt.hash('8888', 12);
   const patrickBarPin = await bcrypt.hash('9999', 12);
   const rachelPin    = await bcrypt.hash('1234', 12);
+  const charlersPin   = await bcrypt.hash('4321', 12);
 
   // Admin 1 - Mory Kaba
   const mory = await prisma.user.upsert({
@@ -122,22 +123,22 @@ async function main() {
   });
 
   // Kitchen - Umunu
-  const umunu = await prisma.user.upsert({
+  const Bonnie = await prisma.user.upsert({
     where: { email: 'umunu@sammy.rw' },
     update: {},
     create: {
-      email: 'umunu@sammy.rw', pin: umunuPin, name: 'Umunu',
+      email: 'umunu@sammy.rw', pin: umunuPin, name: 'Bonnie',
       role: 'KITCHEN', loginType: 'PIN',
       profile: { create: { employmentDate: new Date('2022-03-01'), phone: '+250780000009', address: 'Kigali, Rwanda' } },
     },
   });
 
   // Kitchen - Umun
-  const umun = await prisma.user.upsert({
+  const muzehe = await prisma.user.upsert({
     where: { email: 'umun@sammy.rw' },
     update: {},
     create: {
-      email: 'umun@sammy.rw', pin: umunPin, name: 'Umun',
+      email: 'umun@sammy.rw', pin: umunPin, name: 'muzehe',
       role: 'KITCHEN', loginType: 'PIN',
       profile: { create: { employmentDate: new Date('2022-04-01'), phone: '+250780000010', address: 'Kigali, Rwanda' } },
     },
@@ -185,7 +186,15 @@ async function main() {
       profile: { create: { employmentDate: new Date('2023-02-10'), phone: '+250780000016', address: 'Kigali, Rwanda' } }, 
     },
   });
-
+  const charlers = await prisma.user.upsert({ 
+    where: { email: 'charlers@sammy.rw' },
+    update: {},
+    create: {
+      email: 'charlers@sammy.rw', pin: charlersPin, name: 'Charler',
+      role: 'WAITER', loginType: 'PIN',
+      profile: { create: { employmentDate: new Date('2023-03-10'), phone: '+250780000017', address: 'Kigali, Rwanda' } },
+    },
+  });
   console.log('✅ Users created');
 
   // ===== CATEGORIES =====

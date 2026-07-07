@@ -369,11 +369,15 @@ model OrderItem {
   order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId   String
   product     Product @relation(fields: [productId], references: [id])
-  quantity    Int
+
+  quantity         Int
+  returnedQuantity Int @default(0)
+
   unitPrice   Decimal @db.Decimal(10, 2)
   notes       String?
-  type        String  // FOOD or DRINK
-  batchNumber Int     @default(1)
+  type        String
+  batchNumber Int @default(1)
+
   returnItems ReturnItem[]
 }
 
