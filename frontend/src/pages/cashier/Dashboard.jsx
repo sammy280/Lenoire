@@ -4,16 +4,13 @@ import { formatCurrency, formatDateTime, cn } from '../../lib/utils';
 import Badge from '../../components/shared/Badge';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
-import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, ChevronDown, ChevronUp } from 'lucide-react';
+import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, Scissors, ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import PrintBill from '../../components/shared/PrintBill';
 import { useState, useEffect } from 'react';
 import { getSocket } from '../../lib/socket';
 
 const PAYMENT_METHODS = ['CASH', 'MOBILE_MONEY', 'CREDIT_CARD', 'DEBIT_CARD', 'BANK_TRANSFER', 'CREDIT'];
 const BILL_TYPES = ['NORMAL', 'EBM'];
-
-// Merge step labels
-const MERGE_STEPS = ['source', 'destination', 'seat', 'confirm'];
 
 export default function CashierDashboard() {
   const [selectedBill, setSelectedBill] = useState(null);
@@ -36,6 +33,17 @@ export default function CashierDashboard() {
   const [mergeDestSeat, setMergeDestSeat] = useState(null);
   const [mergeError, setMergeError] = useState('');
 
+  // Separate state
+  const [separateModal, setSeparateModal] = useState(false);
+  const [separateStep, setSeparateStep] = useState('source'); // source | sourceSeat | items | destTable | destSeat | destChoice | confirm
+  const [separateSourceTable, setSeparateSourceTable] = useState(null);
+  const [separateSourceOrder, setSeparateSourceOrder] = useState(null);
+  const [separateQuantities, setSeparateQuantities] = useState({});
+  const [separateDestTable, setSeparateDestTable] = useState(null);
+  const [separateDestSeat, setSeparateDestSeat] = useState(null);
+  const [separateDestChoice, setSeparateDestChoice] = useState(null); // 'merge' | 'new'
+  const [separateError, setSeparateError] = useState('');
+
   const qc = useQueryClient();
 
   const { data: bills } = useQuery({ queryKey: ['bills'], queryFn: () => api.get('/bills'), refetchInterval: 10000 });
@@ -47,6 +55,27 @@ export default function CashierDashboard() {
     queryKey: ['table-detail', tableModal?.id],
     queryFn: () => api.get(`/tables/${tableModal.id}`),
     enabled: !!tableModal?.id,
+  });
+
+  // ── Separate: source table detail (to list seats with active orders) ──
+  const { data: separateSourceTableDetail, isLoading: separateSourceLoading } = useQuery({
+    queryKey: ['table-detail', 'separate-source', separateSourceTable?.id],
+    queryFn: () => api.get(`/tables/${separateSourceTable.id}`),
+    enabled: !!separateSourceTable?.id,
+  });
+
+  // ── Separate: destination table detail (to list seats) ──
+  const { data: separateDestTableDetail } = useQuery({
+    queryKey: ['table-detail', 'separate-dest', separateDestTable?.id],
+    queryFn: () => api.get(`/tables/${separateDestTable.id}`),
+    enabled: !!separateDestTable?.id,
+  });
+
+  // ── Separate: check if destination seat already has an open order ──
+  const { data: destSeatOrderData } = useQuery({
+    queryKey: ['seat-open-order', separateDestSeat?.id],
+    queryFn: () => api.get(`/orders?seatId=${separateDestSeat?.id}&status=PENDING,PREPARING,READY,SERVED`),
+    enabled: !!separateDestSeat?.id,
   });
 
   const confirmOnlinePayment = useMutation({
@@ -90,6 +119,21 @@ export default function CashierDashboard() {
     },
   });
 
+  const separateItems = useMutation({
+    mutationFn: (data) => api.post('/orders/separate', data),
+    onSuccess: () => {
+      qc.invalidateQueries(['tables']);
+      qc.invalidateQueries(['bills']);
+      qc.invalidateQueries(['orders', 'active']);
+      qc.invalidateQueries({ queryKey: ['table-detail'] });
+      qc.invalidateQueries({ queryKey: ['seat-open-order'] });
+      closeSeparateModal();
+    },
+    onError: (err) => {
+      setSeparateError(err?.message || 'Separation failed. Please try again.');
+    },
+  });
+
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
@@ -100,10 +144,17 @@ export default function CashierDashboard() {
       qc.invalidateQueries(['bills']);
       qc.invalidateQueries(['orders', 'active']);
     });
+    socket.on('order:separated', () => {
+      qc.invalidateQueries(['tables']);
+      qc.invalidateQueries(['bills']);
+      qc.invalidateQueries(['orders', 'active']);
+      qc.invalidateQueries({ queryKey: ['table-detail'] });
+    });
     return () => {
       socket.off('bill:generated');
       socket.off('order:served');
       socket.off('tables:merged');
+      socket.off('order:separated');
     };
   }, []);
 
@@ -114,6 +165,7 @@ export default function CashierDashboard() {
   const paidToday = (bills?.data || []).filter(b => b.status === 'PAID' && new Date(b.updatedAt) > new Date(new Date().setHours(0, 0, 0, 0)));
   const totalToday = paidToday.reduce((s, b) => s + parseFloat(b.total), 0);
   const occupiedTables = (tables?.data || []).filter(t => t.status === 'OCCUPIED' || t.status === 'WAITING_PAYMENT');
+  const allTables = tables?.data || [];
 
   const handleGenBill = (orderId) => genBill.mutate({ orderId, billType: genBillType });
 
@@ -146,17 +198,111 @@ export default function CashierDashboard() {
     });
   };
 
-  // Step indicator component
-  const StepIndicator = () => {
-    const steps = [
-      { key: 'source', label: 'Source' },
-      { key: 'destination', label: 'Destination' },
-      { key: 'seat', label: 'Seat' },
-      { key: 'confirm', label: 'Confirm' },
-    ];
-    const currentIdx = steps.findIndex(s => s.key === mergeStep);
+  // ── Separate handlers ──────────────────────────────────────────────────
+  const closeSeparateModal = () => {
+    setSeparateModal(false);
+    setSeparateStep('source');
+    setSeparateSourceTable(null);
+    setSeparateSourceOrder(null);
+    setSeparateQuantities({});
+    setSeparateDestTable(null);
+    setSeparateDestSeat(null);
+    setSeparateDestChoice(null);
+    setSeparateError('');
+  };
+
+  const openSeparateModal = () => {
+    setSeparateModal(true);
+    setSeparateStep('source');
+  };
+
+  // Jump straight to item-selection when launched from an already-open order (Table Detail modal)
+  const openSeparateForOrder = (order, table) => {
+    setSeparateSourceTable(table);
+    setSeparateSourceOrder(order);
+    setSeparateQuantities({});
+    setSeparateDestTable(null);
+    setSeparateDestSeat(null);
+    setSeparateDestChoice(null);
+    setSeparateError('');
+    setSeparateModal(true);
+    setSeparateStep('items');
+  };
+
+  const pickSeparateSourceSeat = (order, table) => {
+    setSeparateSourceOrder(order);
+    setSeparateQuantities({});
+    setSeparateStep('items');
+  };
+
+  const setItemQty = (item, qty) => {
+    const clamped = Math.max(0, Math.min(qty, item.quantity));
+    setSeparateQuantities(q => ({ ...q, [item.id]: clamped }));
+  };
+
+  const selectedItemsPayload = Object.entries(separateQuantities)
+    .filter(([, qty]) => qty > 0)
+    .map(([orderItemId, quantity]) => ({ orderItemId, quantity: Number(quantity) }));
+
+  const canContinueFromItems = selectedItemsPayload.length > 0;
+
+  const goToDestTable = () => {
+    if (!canContinueFromItems) return;
+    setSeparateError('');
+    setSeparateStep('destTable');
+  };
+
+  const pickSeparateDestTable = (table) => {
+    setSeparateDestTable(table);
+    setSeparateDestSeat(null);
+    setSeparateStep('destSeat');
+  };
+
+  const pickSeparateDestSeat = (seat) => {
+    if (separateSourceOrder && seat.id === separateSourceOrder.seatId) {
+      setSeparateError('Destination seat must be different from the source seat.');
+      return;
+    }
+    setSeparateError('');
+    setSeparateDestSeat(seat);
+    setSeparateDestChoice(null);
+    setSeparateStep('__checking'); // brief transitional state while destSeatOrderData loads
+  };
+
+  // Once destSeatOrderData resolves for the chosen seat, decide next step
+  useEffect(() => {
+    if (separateStep !== '__checking' || !separateDestSeat) return;
+    const existing = (destSeatOrderData?.data || []).find(o => o.id !== separateSourceOrder?.id);
+    if (existing) {
+      setSeparateStep('destChoice');
+    } else {
+      setSeparateDestChoice('new');
+      setSeparateStep('confirm');
+    }
+  }, [separateStep, destSeatOrderData, separateDestSeat, separateSourceOrder]);
+
+  const handleSeparateConfirm = () => {
+    if (!separateSourceOrder || !separateDestTable || !separateDestSeat || selectedItemsPayload.length === 0) return;
+    const payload = {
+      sourceOrderId: separateSourceOrder.id,
+      items: selectedItemsPayload,
+      destinationTableId: separateDestTable.id,
+      destinationSeatId: separateDestSeat.id,
+    };
+    if (separateDestChoice === 'merge') {
+      const existing = (destSeatOrderData?.data || []).find(o => o.id !== separateSourceOrder.id);
+      if (existing) payload.destinationOrderId = existing.id;
+    }
+    separateItems.mutate(payload);
+  };
+
+  const existingDestOrder = (destSeatOrderData?.data || []).find(o => o.id !== separateSourceOrder?.id);
+
+  // Step indicator component (shared visual style, works for both modals)
+  const StepIndicator = ({ steps, currentKey }) => {
+    const currentIdx = steps.findIndex(s => s.key === currentKey);
     return (
-      <div className="flex items-center gap-1 mb-5">
+      <div className="flex items-center gap-1 mb-5 flex-wrap">
         {steps.map((s, i) => (
           <div key={s.key} className="flex items-center gap-1">
             <div className={cn(
@@ -174,6 +320,15 @@ export default function CashierDashboard() {
       </div>
     );
   };
+
+  const SEPARATE_STEPS = [
+    { key: 'source', label: 'Table' },
+    { key: 'items', label: 'Items' },
+    { key: 'destTable', label: 'Dest. Table' },
+    { key: 'destSeat', label: 'Dest. Seat' },
+    { key: 'confirm', label: 'Confirm' },
+  ];
+  const separateStepIndicatorKey = separateStep === '__checking' ? 'destSeat' : (separateStep === 'destChoice' ? 'confirm' : separateStep);
 
   return (
     <div className="space-y-6">
@@ -208,21 +363,31 @@ export default function CashierDashboard() {
       {/* ── Occupied Tables ── */}
       {occupiedTables.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Table2 className="w-5 h-5 text-primary" />
               <h3 className="font-semibold">Occupied Tables</h3>
             </div>
-            {occupiedTables.length >= 2 && (
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => { setMergeModal(true); setMergeStep('source'); }}
-                className="flex items-center gap-2 px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/40 text-purple-400 rounded-xl text-sm font-semibold transition-all"
+                onClick={openSeparateModal}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/40 text-blue-400 rounded-xl text-sm font-semibold transition-all"
               >
-                <GitMerge className="w-4 h-4" />
-                <span className="hidden sm:inline">Merge Tables</span>
-                <span className="sm:hidden">Merge</span>
+                <Scissors className="w-4 h-4" />
+                <span className="hidden sm:inline">Separate Items</span>
+                <span className="sm:hidden">Separate</span>
               </button>
-            )}
+              {occupiedTables.length >= 2 && (
+                <button
+                  onClick={() => { setMergeModal(true); setMergeStep('source'); }}
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/40 text-purple-400 rounded-xl text-sm font-semibold transition-all"
+                >
+                  <GitMerge className="w-4 h-4" />
+                  <span className="hidden sm:inline">Merge Tables</span>
+                  <span className="sm:hidden">Merge</span>
+                </button>
+              )}
+            </div>
           </div>
           {/* 2 cols on mobile, wrap freely on desktop */}
           <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-3">
@@ -510,12 +675,22 @@ export default function CashierDashboard() {
                             <span className="text-primary">{formatCurrency(order.items?.reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0))}</span>
                           </div>
                         </div>
-                        {order.status === 'SERVED' && !order.bill && (
-                          <button onClick={() => handleGenBill(order.id)} disabled={genBill.isPending}
-                            className="mt-2 w-full py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl disabled:opacity-50">
-                            Generate {genBillType} Bill
-                          </button>
-                        )}
+                        <div className="flex gap-2 mt-2">
+                          {order.status === 'SERVED' && !order.bill && (
+                            <button onClick={() => handleGenBill(order.id)} disabled={genBill.isPending}
+                              className="flex-1 py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl disabled:opacity-50">
+                              Generate {genBillType} Bill
+                            </button>
+                          )}
+                          {order.bill?.status !== 'PAID' && order.items?.length > 0 && (
+                            <button
+                              onClick={() => { setTableModal(null); openSeparateForOrder(order, tableModal); }}
+                              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/40 text-blue-400 text-sm font-semibold rounded-xl transition-all"
+                            >
+                              <Scissors className="w-3.5 h-3.5" /> Separate
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -544,7 +719,15 @@ export default function CashierDashboard() {
             </div>
 
             <div className="p-5">
-              <StepIndicator />
+              <StepIndicator
+                steps={[
+                  { key: 'source', label: 'Source' },
+                  { key: 'destination', label: 'Destination' },
+                  { key: 'seat', label: 'Seat' },
+                  { key: 'confirm', label: 'Confirm' },
+                ]}
+                currentKey={mergeStep}
+              />
 
               {/* Step 1: Pick source table */}
               {mergeStep === 'source' && (
@@ -652,6 +835,266 @@ export default function CashierDashboard() {
                     >
                       <GitMerge className="w-4 h-4" />
                       {mergeTables.isPending ? 'Merging…' : 'Confirm Merge'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Separate Items Modal ── */}
+      {separateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <Scissors className="w-5 h-5 text-blue-400" />
+                <h3 className="font-bold text-lg">Separate Items</h3>
+              </div>
+              <button onClick={closeSeparateModal} className="p-1.5 hover:bg-accent rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1">
+              <StepIndicator steps={SEPARATE_STEPS} currentKey={separateStepIndicatorKey} />
+
+              {/* Step: pick source table (skipped if launched from Table Detail modal) */}
+              {separateStep === 'source' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">Which table has the items you want to separate?</p>
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
+                    {occupiedTables.map(table => (
+                      <button key={table.id}
+                        onClick={() => { setSeparateSourceTable(table); setSeparateStep('sourceSeat'); }}
+                        className={cn(
+                          'flex flex-col items-center justify-center h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105 sm:w-20',
+                          separateSourceTable?.id === table.id
+                            ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                            : 'border-border hover:border-blue-500/50 bg-accent/50'
+                        )}>
+                        <span className="text-2xl">{table.name}</span>
+                        <span className="text-[9px] opacity-60 mt-0.5">{table.seats?.filter(s => s.isOccupied).length} occupied</span>
+                      </button>
+                    ))}
+                  </div>
+                  {occupiedTables.length === 0 && <p className="text-sm text-muted-foreground text-center py-6">No occupied tables right now</p>}
+                </div>
+              )}
+
+              {/* Step: pick source seat/order */}
+              {separateStep === 'sourceSeat' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Which seat's order on <strong className="text-blue-400">Table {separateSourceTable?.name}</strong> has the items?
+                  </p>
+                  {separateSourceLoading && <p className="text-sm text-muted-foreground text-center py-6">Loading…</p>}
+                  <div className="space-y-2">
+                    {separateSourceTableDetail?.data?.seats?.map(seat => {
+                      const activeOrder = (seat.orders || []).find(o => o.status !== 'CANCELLED' && o.bill?.status !== 'PAID');
+                      if (!activeOrder || !activeOrder.items?.length) return null;
+                      return (
+                        <button key={seat.id}
+                          onClick={() => pickSeparateSourceSeat(activeOrder, separateSourceTable)}
+                          className="w-full flex items-center justify-between p-3 rounded-xl border-2 border-border hover:border-blue-500/50 bg-accent/30 transition-all text-left"
+                        >
+                          <div>
+                            <p className="font-semibold text-sm">Seat {seat.label} — #{activeOrder.orderNumber?.slice(-6)}</p>
+                            <p className="text-xs text-muted-foreground">{activeOrder.items.length} item line(s)</p>
+                          </div>
+                          <Badge status={activeOrder.status} />
+                        </button>
+                      );
+                    })}
+                    {separateSourceTableDetail && !separateSourceTableDetail.data?.seats?.some(s => (s.orders || []).some(o => o.status !== 'CANCELLED' && o.bill?.status !== 'PAID' && o.items?.length)) && (
+                      <p className="text-sm text-muted-foreground text-center py-6">No open orders with items on this table</p>
+                    )}
+                  </div>
+                  <button onClick={() => setSeparateStep('source')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Step: choose items + quantities */}
+              {separateStep === 'items' && separateSourceOrder && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Table <strong className="text-blue-400">{separateSourceOrder.table?.name || separateSourceTable?.name}</strong> • Seat <strong className="text-blue-400">{separateSourceOrder.seat?.label}</strong> — choose how many of each item to separate out.
+                  </p>
+                  <div className="space-y-2">
+                    {separateSourceOrder.items?.map(item => {
+                      const qty = separateQuantities[item.id] || 0;
+                      return (
+                        <div key={item.id} className="flex items-center justify-between p-3 bg-accent/30 border border-border rounded-xl">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{item.product?.name}</p>
+                            <p className="text-xs text-muted-foreground">{item.quantity} ordered • {formatCurrency(parseFloat(item.unitPrice))} each</p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <button onClick={() => setItemQty(item, qty - 1)} disabled={qty <= 0}
+                              className="w-7 h-7 rounded-lg bg-accent hover:bg-border disabled:opacity-30 flex items-center justify-center">
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="w-6 text-center text-sm font-bold">{qty}</span>
+                            <button onClick={() => setItemQty(item, qty + 1)} disabled={qty >= item.quantity}
+                              className="w-7 h-7 rounded-lg bg-accent hover:bg-border disabled:opacity-30 flex items-center justify-center">
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {separateError && (
+                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{separateError}</p>
+                  )}
+                  <div className="flex gap-3">
+                    <button onClick={() => (separateSourceTable ? setSeparateStep('sourceSeat') : closeSeparateModal())} className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold">
+                      ← Back
+                    </button>
+                    <button onClick={goToDestTable} disabled={!canContinueFromItems}
+                      className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-bold disabled:opacity-50">
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: pick destination table (any status) */}
+              {separateStep === 'destTable' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">Which table should receive the separated items? (Any table — available or occupied.)</p>
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
+                    {allTables.map(table => (
+                      <button key={table.id}
+                        onClick={() => pickSeparateDestTable(table)}
+                        className={cn(
+                          'flex flex-col items-center justify-center h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105 sm:w-20',
+                          separateDestTable?.id === table.id
+                            ? 'border-green-500 bg-green-500/20 text-green-300'
+                            : table.status === 'AVAILABLE'
+                              ? 'border-green-500/40 bg-green-500/5 text-green-300 hover:border-green-500/60'
+                              : 'border-border hover:border-green-500/50 bg-accent/50'
+                        )}>
+                        <span className="text-2xl">{table.name}</span>
+                        <span className="text-[9px] opacity-60 mt-0.5">{table.status === 'AVAILABLE' ? 'Available' : `${table.seats?.filter(s => s.isOccupied).length} occupied`}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => setSeparateStep('items')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Step: pick destination seat */}
+              {separateStep === 'destSeat' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Which seat on <strong className="text-green-400">Table {separateDestTable?.name}</strong> should receive the items?
+                  </p>
+                  <div className="grid grid-cols-4 sm:flex sm:flex-wrap gap-2">
+                    {(separateDestTableDetail?.data?.seats || separateDestTable?.seats)?.map(seat => (
+                      <button key={seat.id}
+                        onClick={() => pickSeparateDestSeat(seat)}
+                        disabled={separateSourceOrder && seat.id === separateSourceOrder.seatId}
+                        className={cn(
+                          'flex flex-col items-center justify-center h-16 rounded-xl border-2 font-bold text-sm transition-all sm:w-16',
+                          separateSourceOrder && seat.id === separateSourceOrder.seatId
+                            ? 'border-border bg-accent/30 text-muted-foreground opacity-40 cursor-not-allowed'
+                            : seat.isOccupied
+                              ? 'border-red-500/50 bg-red-500/10 text-red-300 hover:border-green-500/50'
+                              : 'border-green-500/40 bg-green-500/5 text-green-300 hover:border-green-500'
+                        )}>
+                        <span className="text-sm">{seat.label}</span>
+                        <span className="text-[9px] mt-0.5 opacity-70">{seat.isOccupied ? '🔴 Occupied' : '🟢 Free'}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {separateError && (
+                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{separateError}</p>
+                  )}
+                  <button onClick={() => setSeparateStep('destTable')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Transitional: checking for existing order on destination seat */}
+              {separateStep === '__checking' && (
+                <p className="text-sm text-muted-foreground text-center py-8">Checking destination seat…</p>
+              )}
+
+              {/* Step: merge into existing order, or create new */}
+              {separateStep === 'destChoice' && existingDestOrder && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Seat <strong className="text-green-400">{separateDestSeat?.label}</strong> on Table <strong className="text-green-400">{separateDestTable?.name}</strong> already has an open order (#{existingDestOrder.orderNumber?.slice(-6)}). What should happen?
+                  </p>
+                  <div className="grid grid-cols-1 gap-3">
+                    <button onClick={() => { setSeparateDestChoice('merge'); setSeparateStep('confirm'); }}
+                      className={cn('p-4 rounded-xl border-2 text-left transition-all',
+                        separateDestChoice === 'merge' ? 'border-blue-500 bg-blue-500/10' : 'border-border hover:border-blue-500/40 bg-accent/30'
+                      )}>
+                      <p className="font-semibold text-sm">Merge into existing order</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Items get added to order #{existingDestOrder.orderNumber?.slice(-6)}</p>
+                    </button>
+                    <button onClick={() => { setSeparateDestChoice('new'); setSeparateStep('confirm'); }}
+                      className={cn('p-4 rounded-xl border-2 text-left transition-all',
+                        separateDestChoice === 'new' ? 'border-blue-500 bg-blue-500/10' : 'border-border hover:border-blue-500/40 bg-accent/30'
+                      )}>
+                      <p className="font-semibold text-sm">Create a brand new separate order</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Items become their own order on this seat</p>
+                    </button>
+                  </div>
+                  <button onClick={() => setSeparateStep('destSeat')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Step: confirm */}
+              {separateStep === 'confirm' && (
+                <div className="space-y-4">
+                  <div className="bg-accent/50 border border-border rounded-xl p-4 space-y-3 text-sm">
+                    <div className="flex items-center justify-center gap-4 font-semibold text-base flex-wrap">
+                      <span className="px-3 py-1.5 bg-blue-500/20 text-blue-300 rounded-lg">
+                        Table {separateSourceOrder?.table?.name || separateSourceTable?.name} • {separateSourceOrder?.seat?.label}
+                      </span>
+                      <span className="text-muted-foreground text-lg">→</span>
+                      <span className="px-3 py-1.5 bg-green-500/20 text-green-300 rounded-lg">
+                        Table {separateDestTable?.name} • {separateDestSeat?.label}
+                      </span>
+                    </div>
+                    <div className="pt-2 space-y-1">
+                      <p className="text-muted-foreground font-semibold">Items to separate:</p>
+                      {separateSourceOrder?.items
+                        ?.filter(i => (separateQuantities[i.id] || 0) > 0)
+                        .map(i => (
+                          <div key={i.id} className="flex justify-between">
+                            <span>{separateQuantities[i.id]}× {i.product?.name}</span>
+                            <span className="text-primary font-medium">{formatCurrency(parseFloat(i.unitPrice) * separateQuantities[i.id])}</span>
+                          </div>
+                        ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground pt-1">
+                      {separateDestChoice === 'merge'
+                        ? `These items will be added to the existing order on Table ${separateDestTable?.name} • ${separateDestSeat?.label}.`
+                        : `These items will become a new order on Table ${separateDestTable?.name} • ${separateDestSeat?.label}.`}
+                      {' '}Bills already generated will be recalculated automatically.
+                    </p>
+                  </div>
+
+                  {separateError && (
+                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{separateError}</p>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button onClick={() => setSeparateStep(existingDestOrder ? 'destChoice' : 'destSeat')} className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold">
+                      ← Back
+                    </button>
+                    <button
+                      onClick={handleSeparateConfirm}
+                      disabled={separateItems.isPending}
+                      className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <Scissors className="w-4 h-4" />
+                      {separateItems.isPending ? 'Separating…' : 'Confirm Separate'}
                     </button>
                   </div>
                 </div>

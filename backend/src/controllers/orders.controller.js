@@ -3,9 +3,11 @@ const { createAuditLog } = require('../middleware/audit');
 const { emitToUser, emitToRole, emitToRoles } = require('../config/socket');
 const { createNotification } = require('../services/notification.service');
 const { deductInventory } = require('../services/inventory.service');
+const { getLocalDayRange } = require('./analytics.controller');
 
 const generateOrderNumber = () => `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
-
+const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'READY', 'SERVED'];
+const HISTORY_STATUSES = ['COMPLETED', 'CANCELLED'];
 const getOrders = async (req, res, next) => {
   try {
     const { status, waiterId, tableId, date } = req.query;
@@ -58,7 +60,69 @@ const getOrderById = async (req, res, next) => {
     res.json({ success: true, data: order });
   } catch (err) { next(err); }
 };
+const getActiveOrders = async (req, res, next) => {
+  try {
+    const where = { status: { in: ACTIVE_STATUSES } };
+    if (req.user.role === 'WAITER') where.waiterId = req.user.id;
 
+    const orders = await prisma.order.findMany({
+      where,
+      include: {
+        items: { include: { product: { include: { category: true } } } },
+        table: true,
+        seat: true,
+        waiter: { select: { id: true, name: true } },
+        kitchenOrder: true,
+        barOrder: true,
+        bill: { select: { id: true, billNumber: true, total: true, status: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: orders });
+  } catch (err) { next(err); }
+};
+
+const getOrderHistory = async (req, res, next) => {
+  try {
+    const { range = 'today', startDate, endDate } = req.query;
+    let start, end;
+
+    if (range === 'custom' && startDate && endDate) {
+      start = new Date(startDate);
+      end = new Date(new Date(endDate).getTime() + 86400000);
+    } else {
+      const { start: todayStart, end: todayEnd } = getLocalDayRange();
+      if (range === 'today') {
+        start = todayStart; end = todayEnd;
+      } else if (range === 'yesterday') {
+        start = new Date(todayStart.getTime() - 86400000);
+        end = todayStart;
+      } else if (range === 'week') {
+        start = new Date(todayStart.getTime() - 7 * 86400000);
+        end = todayEnd;
+      } else if (range === 'month') {
+        start = new Date(todayStart.getTime() - 30 * 86400000);
+        end = todayEnd;
+      } else {
+        start = todayStart; end = todayEnd;
+      }
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { status: { in: HISTORY_STATUSES }, createdAt: { gte: start, lt: end } },
+      include: {
+        items: { include: { product: true } },
+        table: true,
+        seat: true,
+        waiter: { select: { id: true, name: true } },
+        bill: { include: { payment: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ success: true, data: orders });
+  } catch (err) { next(err); }
+};
 const createOrder = async (req, res, next) => {
   try {
     const { tableId, seatId, items, notes } = req.body;
@@ -603,4 +667,4 @@ const mergeTables = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getOrders, getOrderById, createOrder, cancelOrder, markServed, requestBill, mergeTables };
+module.exports = { getOrders, getOrderById, createOrder, cancelOrder, markServed, requestBill, mergeTables, getActiveOrders, getOrderHistory };

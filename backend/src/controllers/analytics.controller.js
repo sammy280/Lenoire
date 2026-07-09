@@ -1,18 +1,24 @@
 const prisma = require('../config/database');
+const KIGALI_OFFSET_MS = 2 * 60 * 60 * 1000;
+
+function getLocalDayRange(referenceDate = new Date()) {
+  const shifted = new Date(referenceDate.getTime() + KIGALI_OFFSET_MS);
+  shifted.setUTCHours(0, 0, 0, 0);
+  const start = new Date(shifted.getTime() - KIGALI_OFFSET_MS);
+  const end = new Date(start.getTime() + 86400000);
+  return { start, end };
+}
 
 const getDashboard = async (req, res, next) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today.getTime() + 86400000);
+    const { start: today, end: tomorrow } = getLocalDayRange();
 
     const [totalOrders, totalRevenue, activeOrders, lowStockItems, todayAttendance, pendingBills] = await Promise.all([
-      prisma.order.count({ where: { createdAt: { gte: today }, status: { not: 'CANCELLED' } } }),
-      prisma.payment.aggregate({ where: { createdAt: { gte: today } }, _sum: { amount: true } }),
-      prisma.order.count({ where: { status: { in: ['PENDING', 'PREPARING'] } } }),
+      prisma.order.count({ where: { createdAt: { gte: today, lt: tomorrow }, status: { not: 'CANCELLED' } } }),
+      prisma.payment.aggregate({ where: { createdAt: { gte: today, lt: tomorrow } }, _sum: { amount: true } }),
+      prisma.order.count({ where: { status: { in: ['PENDING', 'PREPARING', 'READY', 'SERVED'] } } }),
       prisma.inventoryItem.count({ where: { quantity: { lte: prisma.inventoryItem.fields.minimumStock } } }),
-      prisma.attendance.count({ where: { date: { gte: today } } }),
-      prisma.bill.count({ where: { status: 'GENERATED' } }),
+      prisma.attendance.count({ where: { date: { gte: today, lt: tomorrow } } }),
     ]);
 
     // Get low stock items properly
@@ -121,4 +127,4 @@ const getRevenueReport = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getDashboard, getSalesAnalytics, getRevenueReport };
+module.exports = { getDashboard, getSalesAnalytics, getRevenueReport, getLocalDayRange };

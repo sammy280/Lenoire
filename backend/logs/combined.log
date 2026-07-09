@@ -3391,3 +3391,7 @@
 {"level":"info","message":"🚀 Sammy ERP Server running on port 5000","timestamp":"2026-06-26 11:22:22"}
 {"level":"info","message":"📊 Environment: development","timestamp":"2026-06-26 11:22:22"}
 {"level":"info","message":"✅ Database connected","timestamp":"2026-06-26 11:22:23"}
+{"level":"info","message":"✅ Database connected","timestamp":"2026-07-08 23:45:06"}
+{"level":"debug","message":"Query: BEGIN (299ms)","timestamp":"2026-07-08 23:45:06"}
+{"level":"debug","message":"Query: UPDATE \"public\".\"Order\" SET \"status\" = CAST($1::text AS \"public\".\"OrderStatus\"), \"updatedAt\" = $2 WHERE (\"public\".\"Order\".\"status\" IN (CAST($3::text AS \"public\".\"OrderStatus\"),CAST($4::text AS \"public\".\"OrderStatus\"),CAST($5::text AS \"public\".\"OrderStatus\"),CAST($6::text AS \"public\".\"OrderStatus\")) AND (\"public\".\"Order\".\"id\") IN (SELECT \"t1\".\"orderId\" FROM \"public\".\"Bill\" AS \"t1\" WHERE (\"t1\".\"status\" = CAST($7::text AS \"public\".\"BillStatus\") AND \"t1\".\"orderId\" IS NOT NULL))) (571ms)","timestamp":"2026-07-08 23:45:07"}
+{"level":"debug","message":"Query: COMMIT (196ms)","timestamp":"2026-07-08 23:45:07"}

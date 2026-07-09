@@ -14,5 +14,7 @@ router.get('/:id', authorize('ADMIN', 'MANAGER', 'CASHIER', 'WAITER', 'KITCHEN',
 router.patch('/:id/cancel', authorize('ADMIN', 'MANAGER', 'WAITER'), ctrl.cancelOrder);
 router.patch('/:id/served', authorize('WAITER'), ctrl.markServed);
 router.post('/:id/request-bill', authorize('WAITER'), ctrl.requestBill);
+router.get('/active', authorize('ADMIN', 'MANAGER', 'CASHIER', 'WAITER', 'KITCHEN', 'BAR'), ctrl.getActiveOrders);
+router.get('/history', authorize('ADMIN', 'MANAGER', 'CASHIER'), ctrl.getOrderHistory);
 
 module.exports = router;

@@ -83,6 +83,10 @@ const markBillPaid = async (req, res, next) => {
           mixedDetails,
         },
       }),
+    prisma.order.update({
+    where: { id: bill.orderId },
+    data: { status: 'COMPLETED' },
+  }),
     ]);
 
     // If credit payment, create a CreditSale record

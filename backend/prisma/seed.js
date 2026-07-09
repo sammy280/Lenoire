@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
-async function main() {
+async function main() { 
   console.log('🌱 Seeding database...');
 
   // ===== USERS =====
@@ -17,8 +17,8 @@ async function main() {
   const denisePin   = await bcrypt.hash('2222', 12);
   const poulletPin  = await bcrypt.hash('4444', 12);
   const cleverPin   = await bcrypt.hash('5555', 12);
-  const Bonnie     = await bcrypt.hash('6666', 12);
-  const muzehe     = await bcrypt.hash('7777', 12);
+  const BoniePin     = await bcrypt.hash('6666', 12);
+  const MuzehePin     = await bcrypt.hash('7777', 12);
   const safiBarPin  = await bcrypt.hash('8888', 12);
   const patrickBarPin = await bcrypt.hash('9999', 12);
   const rachelPin    = await bcrypt.hash('1234', 12);
@@ -123,22 +123,22 @@ async function main() {
   });
 
   // Kitchen - Umunu
-  const Bonnie = await prisma.user.upsert({
+  const Bonie = await prisma.user.upsert({
     where: { email: 'umunu@sammy.rw' },
     update: {},
     create: {
-      email: 'umunu@sammy.rw', pin: umunuPin, name: 'Bonnie',
+      email: 'umunu@sammy.rw', pin: BoniePin, name: 'Bonie',
       role: 'KITCHEN', loginType: 'PIN',
       profile: { create: { employmentDate: new Date('2022-03-01'), phone: '+250780000009', address: 'Kigali, Rwanda' } },
     },
   });
 
   // Kitchen - Umun
-  const muzehe = await prisma.user.upsert({
+  const Muzehe = await prisma.user.upsert({
     where: { email: 'umun@sammy.rw' },
     update: {},
     create: {
-      email: 'umun@sammy.rw', pin: umunPin, name: 'muzehe',
+      email: 'umun@sammy.rw', pin: MuzehePin, name: 'Muzehe',
       role: 'KITCHEN', loginType: 'PIN',
       profile: { create: { employmentDate: new Date('2022-04-01'), phone: '+250780000010', address: 'Kigali, Rwanda' } },
     },
