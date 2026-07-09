@@ -10,8 +10,9 @@ const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'READY', 'SERVED'];
 const HISTORY_STATUSES = ['COMPLETED', 'CANCELLED'];
 const getOrders = async (req, res, next) => {
   try {
-    const { status, waiterId, tableId, date } = req.query;
+    const { status, waiterId, tableId, seatId, date } = req.query;
     const where = {};
+    if (seatId) where.seatId = seatId;
     if (status) {
       const statuses = status.split(',').map(s => s.trim()).filter(Boolean);
       where.status = statuses.length === 1 ? statuses[0] : { in: statuses };
@@ -542,6 +543,195 @@ const requestBill = async (req, res, next) => {
     res.json({ success: true, message: 'Bill requested. Cashier has been notified.' });
   } catch (err) { next(err); }
 };
+const separateOrderItems = async (req, res, next) => {
+  try {
+    const { sourceOrderId, items, destinationTableId, destinationSeatId, destinationOrderId } = req.body;
+    const io = req.app.get('io');
+
+    if (!sourceOrderId || !items?.length || !destinationTableId || !destinationSeatId) {
+      return res.status(400).json({ success: false, message: 'sourceOrderId, items, destinationTableId and destinationSeatId are required' });
+    }
+
+    const sourceOrder = await prisma.order.findUnique({
+      where: { id: sourceOrderId },
+      include: { items: true, kitchenOrder: true, barOrder: true, bill: true, table: true, seat: true },
+    });
+    if (!sourceOrder) return res.status(404).json({ success: false, message: 'Source order not found' });
+    if (sourceOrder.status === 'CANCELLED') {
+      return res.status(400).json({ success: false, message: 'Cannot separate items from a cancelled order' });
+    }
+    if (sourceOrder.bill?.status === 'PAID') {
+      return res.status(400).json({ success: false, message: 'Order already paid — use a return/refund instead of separating' });
+    }
+
+    const destTable = await prisma.restaurantTable.findUnique({ where: { id: destinationTableId } });
+    if (!destTable) return res.status(404).json({ success: false, message: 'Destination table not found' });
+    const destSeat = await prisma.seat.findUnique({ where: { id: destinationSeatId } });
+    if (!destSeat || destSeat.tableId !== destinationTableId) {
+      return res.status(400).json({ success: false, message: 'Destination seat not found on destination table' });
+    }
+    if (destinationTableId === sourceOrder.tableId && destinationSeatId === sourceOrder.seatId) {
+      return res.status(400).json({ success: false, message: 'Destination seat must be different from the source seat' });
+    }
+
+    let destOrder = null;
+    if (destinationOrderId) {
+      destOrder = await prisma.order.findUnique({
+        where: { id: destinationOrderId },
+        include: { items: true, kitchenOrder: true, barOrder: true, bill: true },
+      });
+      if (!destOrder) return res.status(404).json({ success: false, message: 'Destination order not found' });
+      if (destOrder.seatId !== destinationSeatId) {
+        return res.status(400).json({ success: false, message: 'Destination order does not belong to the destination seat' });
+      }
+      if (destOrder.bill?.status === 'PAID') {
+        return res.status(400).json({ success: false, message: 'Destination order already paid' });
+      }
+    }
+
+    const sourceItemsById = Object.fromEntries(sourceOrder.items.map(i => [i.id, i]));
+    for (const req_ of items) {
+      const item = sourceItemsById[req_.orderItemId];
+      if (!item) return res.status(400).json({ success: false, message: `Item ${req_.orderItemId} does not belong to source order` });
+      if (!req_.quantity || req_.quantity <= 0 || req_.quantity > item.quantity) {
+        return res.status(400).json({ success: false, message: `Invalid quantity for item ${item.id}` });
+      }
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      let workingDestOrder = destOrder;
+
+      if (!workingDestOrder) {
+        workingDestOrder = await tx.order.create({
+          data: {
+            orderNumber: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
+            tableId: destinationTableId,
+            seatId: destinationSeatId,
+            waiterId: sourceOrder.waiterId,
+            createdById: req.user.id,
+            status: sourceOrder.status,
+            isSent: true,
+          },
+        });
+        await tx.restaurantTable.update({ where: { id: destinationTableId }, data: { status: 'OCCUPIED' } });
+        await tx.seat.update({ where: { id: destinationSeatId }, data: { isOccupied: true } });
+      }
+
+      let movedFood = false;
+      let movedDrink = false;
+
+      for (const req_ of items) {
+        const item = sourceItemsById[req_.orderItemId];
+        movedFood = movedFood || item.type === 'FOOD';
+        movedDrink = movedDrink || item.type === 'DRINK';
+
+        if (req_.quantity === item.quantity) {
+          await tx.orderItem.update({ where: { id: item.id }, data: { orderId: workingDestOrder.id } });
+        } else {
+          await tx.orderItem.update({ where: { id: item.id }, data: { quantity: item.quantity - req_.quantity } });
+          await tx.orderItem.create({
+            data: {
+              orderId: workingDestOrder.id,
+              productId: item.productId,
+              quantity: req_.quantity,
+              unitPrice: item.unitPrice,
+              notes: item.notes,
+              type: item.type,
+              batchNumber: item.batchNumber,
+            },
+          });
+        }
+      }
+
+      if (movedFood) {
+        await tx.kitchenOrder.upsert({
+          where: { orderId: workingDestOrder.id },
+          update: {},
+          create: {
+            orderId: workingDestOrder.id,
+            status: sourceOrder.kitchenOrder?.status || 'SERVED',
+            currentBatch: sourceOrder.kitchenOrder?.currentBatch || 1,
+          },
+        });
+      }
+      if (movedDrink) {
+        await tx.barOrder.upsert({
+          where: { orderId: workingDestOrder.id },
+          update: {},
+          create: {
+            orderId: workingDestOrder.id,
+            status: sourceOrder.barOrder?.status || 'SERVED',
+            currentBatch: sourceOrder.barOrder?.currentBatch || 1,
+          },
+        });
+      }
+
+      await tx.orderItem.deleteMany({ where: { orderId: sourceOrderId, quantity: { lte: 0 } } });
+
+      const refreshedSource = await tx.order.findUnique({ where: { id: sourceOrderId }, include: { items: true, bill: true } });
+      const refreshedDest = await tx.order.findUnique({ where: { id: workingDestOrder.id }, include: { items: true, bill: true } });
+
+      if (refreshedSource.bill && refreshedSource.bill.status !== 'PAID') {
+        const subtotal = refreshedSource.items.reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0);
+        const tax = parseFloat(refreshedSource.bill.tax ?? 0);
+        const discount = parseFloat(refreshedSource.bill.discount ?? 0);
+        await tx.bill.update({ where: { id: refreshedSource.bill.id }, data: { subtotal, total: subtotal + tax - discount } });
+      }
+      if (refreshedDest.bill && refreshedDest.bill.status !== 'PAID') {
+        const subtotal = refreshedDest.items.reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0);
+        const tax = parseFloat(refreshedDest.bill.tax ?? 0);
+        const discount = parseFloat(refreshedDest.bill.discount ?? 0);
+        await tx.bill.update({ where: { id: refreshedDest.bill.id }, data: { subtotal, total: subtotal + tax - discount } });
+      }
+
+      if (refreshedSource.items.length === 0) {
+        await tx.order.update({
+          where: { id: sourceOrderId },
+          data: { status: 'CANCELLED', cancelReason: 'All items separated to another table' },
+        });
+        const stillOpen = await tx.order.count({
+          where: { tableId: sourceOrder.tableId, seatId: sourceOrder.seatId, status: { notIn: ['CANCELLED', 'COMPLETED'] } },
+        });
+        if (stillOpen === 0) {
+          await tx.seat.update({ where: { id: sourceOrder.seatId }, data: { isOccupied: false } });
+          const otherOccupied = await tx.seat.count({ where: { tableId: sourceOrder.tableId, isOccupied: true } });
+          if (otherOccupied === 0) {
+            await tx.restaurantTable.update({ where: { id: sourceOrder.tableId }, data: { status: 'AVAILABLE' } });
+          }
+        }
+      }
+
+      return { sourceOrderId, destOrderId: workingDestOrder.id };
+    });
+
+    const [finalSource, finalDest] = await Promise.all([
+      prisma.order.findUnique({
+        where: { id: result.sourceOrderId },
+        include: { items: { include: { product: true } }, table: true, seat: true, bill: true },
+      }),
+      prisma.order.findUnique({
+        where: { id: result.destOrderId },
+        include: { items: { include: { product: true } }, table: true, seat: true, bill: true, kitchenOrder: true, barOrder: true },
+      }),
+    ]);
+
+    io.to('role:CASHIER').to('role:MANAGER').to('role:ADMIN').to('role:WAITER').emit('order:separated', {
+      source: finalSource,
+      destination: finalDest,
+    });
+
+    await createAuditLog({
+      userId: req.user.id,
+      role: req.user.role,
+      action: 'SEPARATE_ORDER_ITEMS',
+      description: `Separated ${items.length} item line(s) from order ${sourceOrder.orderNumber} to Table ${destTable.name} ${destSeat.label}`,
+      tableName: 'Order',
+      recordId: sourceOrderId,
+    });
+
+    res.json({ success: true, data: { source: finalSource, destination: finalDest } });
+  } catch (err) { next(err); }
+};
 
 // ── MERGE TABLES ─────────────────────────────────────────────────────────────
 const mergeTables = async (req, res, next) => {
@@ -667,4 +857,4 @@ const mergeTables = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getOrders, getOrderById, createOrder, cancelOrder, markServed, requestBill, mergeTables, getActiveOrders, getOrderHistory };
+module.exports = { getOrders, getOrderById, createOrder, cancelOrder, markServed, requestBill, mergeTables, getActiveOrders, getOrderHistory, separateOrderItems };

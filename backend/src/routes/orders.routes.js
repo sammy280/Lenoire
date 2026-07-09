@@ -8,6 +8,7 @@ router.get('/', authorize('ADMIN', 'MANAGER', 'CASHIER', 'WAITER', 'KITCHEN', 'B
 router.post('/', authorize('WAITER'), ctrl.createOrder);
 
 // ⚠️ Must be before /:id routes
+router.post('/separate', authorize('CASHIER', 'MANAGER', 'ADMIN'), ctrl.separateOrderItems);
 router.post('/merge', authorize('CASHIER', 'MANAGER', 'ADMIN'), ctrl.mergeTables);
 
 router.get('/:id', authorize('ADMIN', 'MANAGER', 'CASHIER', 'WAITER', 'KITCHEN', 'BAR'), ctrl.getOrderById);
