@@ -20,7 +20,7 @@ async function main() {
   const BoniePin     = await bcrypt.hash('6666', 12);
   const MuzehePin     = await bcrypt.hash('7777', 12);
   const safiBarPin  = await bcrypt.hash('8888', 12);
-  const patrickBarPin = await bcrypt.hash('9999', 12);
+  const charlesBarPin = await bcrypt.hash('9999', 12);
   const rachelPin    = await bcrypt.hash('1234', 12);
   const charlersPin   = await bcrypt.hash('4321', 12);
 
@@ -257,6 +257,7 @@ async function main() {
     { name: 'HALF chicken', price: 13000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'HALF PORK', price: 6000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'Impyiko', price: 2500, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
+    { name: 'Half chicken rice', price: 19000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'Liver brochette', price: 2500, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'HALF chicken', price: 13000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'Nyama choma Ribs(full)', price: 22000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
@@ -357,6 +358,8 @@ async function main() {
     { name: 'Cappuccino', price: 3500, categoryId: cats['Coffee'], isFeatured: true, preparationTime: 5 },
     { name: 'Latte', price: 3500, categoryId: cats['Coffee'], preparationTime: 5 },
     { name: 'Cold Coffee', price: 4000, categoryId: cats['Coffee'], preparationTime: 5 },
+    { name: 'Hot milk', price: 3000, categoryId: cats['Coffee'], preparationTime: 10 },
+    { name: 'Cold milk', price: 3000, categoryId: cats['Coffee'], preparationTime: 10 },
     // DRINKS
     { name: 'Fanta', price: 1500, categoryId: cats['Soft Drinks'], preparationTime: 1 }, 
     { name: 'Bavaria san alcohol', price: 4000, categoryId: cats['Soft Drinks'], preparationTime: 1 },
