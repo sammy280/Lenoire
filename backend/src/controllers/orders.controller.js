@@ -390,7 +390,7 @@ const createOrder = async (req, res, next) => {
       });
     }
 
-    io.to('role:KITCHEN').to('role:BAR').to('role:MANAGER').to('role:ADMIN').to('role:CASHIER').emit(
+    io?.to('role:KITCHEN').to('role:BAR').to('role:MANAGER').to('role:ADMIN').to('role:CASHIER').emit(
       isAddition ? 'order:updated' : 'order:new',
       order,
     );
@@ -833,7 +833,7 @@ const mergeTables = async (req, res, next) => {
       message: `Table ${sourceTable.name} merged into Table ${destTable.name} by ${req.user.name}. ${sourceOrders.length} order(s) moved.`,
       data: { sourceTableId, destinationTableId },
       io,
-    });
+    }); 
 
     await createAuditLog({
       userId: req.user.id,
