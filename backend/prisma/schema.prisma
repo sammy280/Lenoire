@@ -8,51 +8,64 @@ datasource db {
 }
 
 model User {
-  id                     String                @id @default(cuid())
-  email                  String?               @unique
-  passwordHash           String?
-  pin                    String?
-  name                   String
-  role                   Role
-  loginType              LoginType
-  isActive               Boolean               @default(true)
-  failedAttempts         Int                   @default(0)
-  lockedUntil            DateTime?
-  lastLogin              DateTime?
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
-  attendance             Attendance[]
-  auditLogs              AuditLog[]
-  barUpdates             BarOrder[]            @relation("BarStaffUpdates")
-  cashierBills           Bill[]
-  creditPaymentsReceived CreditPayment[]       @relation("CreditReceiver")
-  creditApprovals        CreditSale[]          @relation("CreditApprover")
-  dailyReports           DailyReport[]
-  approvedDeletes        DeleteRequest[]       @relation("ApprovedDeleteBy")
-  deleteRequests         DeleteRequest[]       @relation("RequestedBy")
-  deliveries             Delivery[]
-  profile                EmployeeProfile?
-  expenses               Expense[]
-  firedRecord            FiredEmployee?        @relation("FiredEmployee")
-  firedBy                FiredEmployee[]       @relation("FiredBy")
-  kitchenUpdates         KitchenOrder[]        @relation("KitchenStaffUpdates")
-  notifications          Notification[]
-  createdOrders          Order[]               @relation("CreatedByOrders")
-  assignedOrders         Order[]               @relation("WaiterOrders")
-  passwordResets         PasswordReset[]
-  cashierPayments        Payment[]
-  payrollEmployee        Payroll[]             @relation("EmployeePayroll")
-  payrollPaid            Payroll[]             @relation("PaidByPayroll")
-  approvedPunishments    Punishment[]          @relation("ApprovedBy")
-  punishments            Punishment[]          @relation("PunishedEmployee")
-  punishmentsBy          Punishment[]          @relation("PunishedBy")
-  purchases              Purchase[]
-  purchaseOrdersCreated  PurchaseOrder[]       @relation("PurchaseOrderCreator")
-  requisitionsCreated    Requisition[]         @relation("RequisitionRequester")
-  requisitionsReviewed   Requisition[]         @relation("RequisitionReviewer")
-  sessions               Session[]
-  shifts                 Shift[]
-  reconciliations        StockReconciliation[]
+  id                                                       String                @id @default(cuid())
+  email                                                    String?               @unique
+  passwordHash                                             String?
+  pin                                                      String?
+  name                                                     String
+  role                                                     Role
+  loginType                                                LoginType
+  isActive                                                 Boolean               @default(true)
+  failedAttempts                                           Int                   @default(0)
+  lockedUntil                                              DateTime?
+  lastLogin                                                DateTime?
+  createdAt                                                DateTime              @default(now())
+  updatedAt                                                DateTime              @updatedAt
+  attendance                                               Attendance[]
+  auditLogs                                                AuditLog[]
+  BarOrder_BarOrder_cancelledByIdToUser                    BarOrder[]            @relation("BarOrder_cancelledByIdToUser")
+  barUpdates                                               BarOrder[]            @relation("BarStaffUpdates")
+  cashierBills                                             Bill[]
+  CashSession_CashSession_closedByIdToUser                 CashSession[]         @relation("CashSession_closedByIdToUser")
+  CashSession_CashSession_openedByIdToUser                 CashSession[]         @relation("CashSession_openedByIdToUser")
+  creditPaymentsReceived                                   CreditPayment[]       @relation("CreditReceiver")
+  creditApprovals                                          CreditSale[]          @relation("CreditApprover")
+  dailyReports                                             DailyReport[]
+  approvedDeletes                                          DeleteRequest[]       @relation("ApprovedDeleteBy")
+  deleteRequests                                           DeleteRequest[]       @relation("RequestedBy")
+  deliveries                                               Delivery[]
+  profile                                                  EmployeeProfile?
+  expenses                                                 Expense[]
+  firedRecord                                              FiredEmployee?        @relation("FiredEmployee")
+  firedBy                                                  FiredEmployee[]       @relation("FiredBy")
+  KitchenOrder_KitchenOrder_cancelledByIdToUser            KitchenOrder[]        @relation("KitchenOrder_cancelledByIdToUser")
+  kitchenUpdates                                           KitchenOrder[]        @relation("KitchenStaffUpdates")
+  notifications                                            Notification[]
+  createdOrders                                            Order[]               @relation("CreatedByOrders")
+  assignedOrders                                           Order[]               @relation("WaiterOrders")
+  passwordResets                                           PasswordReset[]
+  cashierPayments                                          Payment[]
+  payrollEmployee                                          Payroll[]             @relation("EmployeePayroll")
+  payrollPaid                                              Payroll[]             @relation("PaidByPayroll")
+  PrintLog                                                 PrintLog[]
+  approvedPunishments                                      Punishment[]          @relation("ApprovedBy")
+  punishments                                              Punishment[]          @relation("PunishedEmployee")
+  punishmentsBy                                            Punishment[]          @relation("PunishedBy")
+  purchases                                                Purchase[]
+  purchaseOrdersCreated                                    PurchaseOrder[]       @relation("PurchaseOrderCreator")
+  requisitionsCreated                                      Requisition[]         @relation("RequisitionRequester")
+  requisitionsReviewed                                     Requisition[]         @relation("RequisitionReviewer")
+  ReturnRequest_ReturnRequest_managerApproverIdToUser      ReturnRequest[]       @relation("ReturnRequest_managerApproverIdToUser")
+  ReturnRequest_ReturnRequest_requestedByIdToUser          ReturnRequest[]       @relation("ReturnRequest_requestedByIdToUser")
+  ReturnRequest_ReturnRequest_reviewedByIdToUser           ReturnRequest[]       @relation("ReturnRequest_reviewedByIdToUser")
+  SalaryAdvance_SalaryAdvance_approvedByIdToUser           SalaryAdvance[]       @relation("SalaryAdvance_approvedByIdToUser")
+  SalaryAdvance_SalaryAdvance_employeeIdToUser             SalaryAdvance[]       @relation("SalaryAdvance_employeeIdToUser")
+  SalaryHistory                                            SalaryHistory[]
+  sessions                                                 Session[]
+  shifts                                                   Shift[]
+  reconciliations                                          StockReconciliation[]
+  TransportAllowance_TransportAllowance_employeeIdToUser   TransportAllowance[]  @relation("TransportAllowance_employeeIdToUser")
+  TransportAllowance_TransportAllowance_recordedByIdToUser TransportAllowance[]  @relation("TransportAllowance_recordedByIdToUser")
 }
 
 model EmployeeProfile {
@@ -173,6 +186,7 @@ model Order {
   billRequested Boolean         @default(false)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+  cancelledAt   DateTime?
   barOrder      BarOrder?
   bill          Bill?
   kitchenOrder  KitchenOrder?
@@ -181,67 +195,108 @@ model Order {
   table         RestaurantTable @relation(fields: [tableId], references: [id])
   waiter        User            @relation("WaiterOrders", fields: [waiterId], references: [id])
   items         OrderItem[]
+  ReturnRequest ReturnRequest[]
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model PrintLog {
+  id            String       @id @default(cuid())
+  jobType       PrintJobType
+  title         String
+  content       String
+  targetPrinter String
+  status        PrintStatus  @default(PENDING)
+  printedAt     DateTime?
+  orderId       String?
+  billId        String?
+  printedById   String?
+  createdAt     DateTime     @default(now())
+  User          User?        @relation(fields: [printedById], references: [id])
 }
 
 model OrderItem {
-  id          String  @id @default(cuid())
-  orderId     String
-  productId   String
-  quantity    Int
-  unitPrice   Decimal @db.Decimal(10, 2)
-  notes       String?
-  type        String
-  batchNumber Int     @default(1)
-  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product @relation(fields: [productId], references: [id])
+  id               String       @id @default(cuid())
+  orderId          String
+  productId        String
+  quantity         Int
+  unitPrice        Decimal      @db.Decimal(10, 2)
+  notes            String?
+  type             String
+  batchNumber      Int          @default(1)
+  returnedQuantity Int          @default(0)
+  order            Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product          Product      @relation(fields: [productId], references: [id])
+  ReturnItem       ReturnItem[]
 }
 
 model KitchenOrder {
-  id           String      @id @default(cuid())
-  orderId      String      @unique
-  status       OrderStatus @default(PENDING)
-  staffId      String?
-  notes        String?
-  startedAt    DateTime?
-  readyAt      DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  currentBatch Int         @default(1)
-  order        Order       @relation(fields: [orderId], references: [id])
-  staff        User?       @relation("KitchenStaffUpdates", fields: [staffId], references: [id])
+  id                                    String      @id @default(cuid())
+  orderId                               String      @unique
+  status                                OrderStatus @default(PENDING)
+  staffId                               String?
+  notes                                 String?
+  startedAt                             DateTime?
+  readyAt                               DateTime?
+  createdAt                             DateTime    @default(now())
+  updatedAt                             DateTime    @updatedAt
+  currentBatch                          Int         @default(1)
+  cancelReason                          String?
+  cancelledAt                           DateTime?
+  cancelledById                         String?
+  User_KitchenOrder_cancelledByIdToUser User?       @relation("KitchenOrder_cancelledByIdToUser", fields: [cancelledById], references: [id])
+  order                                 Order       @relation(fields: [orderId], references: [id])
+  staff                                 User?       @relation("KitchenStaffUpdates", fields: [staffId], references: [id])
+
+  @@index([createdAt])
+  @@index([status])
 }
 
 model BarOrder {
-  id           String      @id @default(cuid())
-  orderId      String      @unique
-  status       OrderStatus @default(PENDING)
-  staffId      String?
-  notes        String?
-  startedAt    DateTime?
-  readyAt      DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  currentBatch Int         @default(1)
-  order        Order       @relation(fields: [orderId], references: [id])
-  staff        User?       @relation("BarStaffUpdates", fields: [staffId], references: [id])
+  id                                String      @id @default(cuid())
+  orderId                           String      @unique
+  status                            OrderStatus @default(PENDING)
+  staffId                           String?
+  notes                             String?
+  startedAt                         DateTime?
+  readyAt                           DateTime?
+  createdAt                         DateTime    @default(now())
+  updatedAt                         DateTime    @updatedAt
+  currentBatch                      Int         @default(1)
+  cancelReason                      String?
+  cancelledAt                       DateTime?
+  cancelledById                     String?
+  User_BarOrder_cancelledByIdToUser User?       @relation("BarOrder_cancelledByIdToUser", fields: [cancelledById], references: [id])
+  order                             Order       @relation(fields: [orderId], references: [id])
+  staff                             User?       @relation("BarStaffUpdates", fields: [staffId], references: [id])
+
+  @@index([createdAt])
+  @@index([status])
 }
 
 model Bill {
-  id          String     @id @default(cuid())
-  billNumber  String     @unique
-  orderId     String     @unique
-  subtotal    Decimal    @db.Decimal(10, 2)
-  tax         Decimal    @default(0) @db.Decimal(10, 2)
-  discount    Decimal    @default(0) @db.Decimal(10, 2)
-  total       Decimal    @db.Decimal(10, 2)
-  status      BillStatus @default(NOT_GENERATED)
-  billType    BillType   @default(NORMAL)
-  generatedBy String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  cashier     User?      @relation(fields: [generatedBy], references: [id])
-  order       Order      @relation(fields: [orderId], references: [id])
-  payment     Payment?
+  id            String       @id @default(cuid())
+  billNumber    String       @unique
+  orderId       String       @unique
+  subtotal      Decimal      @db.Decimal(10, 2)
+  tax           Decimal      @default(0) @db.Decimal(10, 2)
+  discount      Decimal      @default(0) @db.Decimal(10, 2)
+  total         Decimal      @db.Decimal(10, 2)
+  status        BillStatus   @default(NOT_GENERATED)
+  billType      BillType     @default(NORMAL)
+  generatedBy   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  cashSessionId String?
+  paidAt        DateTime?
+  CashSession   CashSession? @relation(fields: [cashSessionId], references: [id])
+  cashier       User?        @relation(fields: [generatedBy], references: [id])
+  order         Order        @relation(fields: [orderId], references: [id])
+  payment       Payment?
+
+  @@index([cashSessionId])
+  @@index([status])
 }
 
 model Payment {
@@ -394,9 +449,15 @@ model Shift {
 model Payroll {
   id          String   @id @default(cuid())
   employeeId  String
+  baseSalary  Decimal  @default(0) @db.Decimal(10, 2)
   amount      Decimal  @db.Decimal(10, 2)
+  bonuses     Decimal  @default(0) @db.Decimal(10, 2)
+  advances    Decimal  @default(0) @db.Decimal(10, 2)
+  penalties   Decimal  @default(0) @db.Decimal(10, 2)
   period      String
+  periodMonth String?
   daysWorked  Int?
+  daysAbsent  Int?
   hoursWorked Decimal? @db.Decimal(8, 2)
   overtime    Decimal? @db.Decimal(8, 2)
   deductions  Decimal? @default(0) @db.Decimal(10, 2)
@@ -766,6 +827,103 @@ model PurchaseOrder {
   requisition   Requisition @relation(fields: [requisitionId], references: [id])
 }
 
+model CashSession {
+  id                                String            @id
+  status                            CashSessionStatus @default(OPEN)
+  openedAt                          DateTime          @default(now())
+  closedAt                          DateTime?
+  openedById                        String
+  closedById                        String?
+  openingNote                       String?
+  closingNote                       String?
+  createdAt                         DateTime          @default(now())
+  billCount                         Int?
+  cashVariance                      Decimal?          @db.Decimal(10, 2)
+  countedCash                       Decimal?          @db.Decimal(10, 2)
+  expectedCash                      Decimal?          @db.Decimal(10, 2)
+  openingCashAmount                 Decimal?          @db.Decimal(10, 2)
+  totalCard                         Decimal?          @db.Decimal(10, 2)
+  totalCash                         Decimal?          @db.Decimal(10, 2)
+  totalCredit                       Decimal?          @db.Decimal(10, 2)
+  totalMomo                         Decimal?          @db.Decimal(10, 2)
+  totalRevenue                      Decimal?          @db.Decimal(10, 2)
+  Bill                              Bill[]
+  User_CashSession_closedByIdToUser User?             @relation("CashSession_closedByIdToUser", fields: [closedById], references: [id])
+  User_CashSession_openedByIdToUser User              @relation("CashSession_openedByIdToUser", fields: [openedById], references: [id])
+
+  @@index([status])
+}
+
+model ReturnItem {
+  id              String        @id
+  returnRequestId String
+  orderItemId     String
+  quantity        Int
+  reason          String?
+  OrderItem       OrderItem     @relation(fields: [orderItemId], references: [id])
+  ReturnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+}
+
+model ReturnRequest {
+  id                                         String       @id
+  orderId                                    String
+  reason                                     String
+  status                                     ReturnStatus @default(PENDING)
+  requestedById                              String
+  reviewedById                               String?
+  reviewNote                                 String?
+  reviewedAt                                 DateTime?
+  managerApproverId                          String?
+  managerNote                                String?
+  managerActedAt                             DateTime?
+  restockDone                                Boolean      @default(false)
+  createdAt                                  DateTime     @default(now())
+  updatedAt                                  DateTime
+  ReturnItem                                 ReturnItem[]
+  User_ReturnRequest_managerApproverIdToUser User?        @relation("ReturnRequest_managerApproverIdToUser", fields: [managerApproverId], references: [id])
+  Order                                      Order        @relation(fields: [orderId], references: [id])
+  User_ReturnRequest_requestedByIdToUser     User         @relation("ReturnRequest_requestedByIdToUser", fields: [requestedById], references: [id])
+  User_ReturnRequest_reviewedByIdToUser      User?        @relation("ReturnRequest_reviewedByIdToUser", fields: [reviewedById], references: [id])
+}
+
+model SalaryAdvance {
+  id                                    String    @id
+  employeeId                            String
+  amount                                Decimal   @db.Decimal(10, 2)
+  period                                String
+  reason                                String?
+  approvedById                          String?
+  approvedAt                            DateTime?
+  status                                String    @default("PENDING")
+  createdAt                             DateTime  @default(now())
+  User_SalaryAdvance_approvedByIdToUser User?     @relation("SalaryAdvance_approvedByIdToUser", fields: [approvedById], references: [id])
+  User_SalaryAdvance_employeeIdToUser   User      @relation("SalaryAdvance_employeeIdToUser", fields: [employeeId], references: [id])
+}
+
+model SalaryHistory {
+  id          String   @id
+  employeeId  String
+  oldSalary   Decimal  @db.Decimal(10, 2)
+  newSalary   Decimal  @db.Decimal(10, 2)
+  reason      String
+  changedById String
+  changedBy   String
+  changedAt   DateTime @default(now())
+  User        User     @relation(fields: [employeeId], references: [id])
+}
+
+model TransportAllowance {
+  id                                         String   @id
+  employeeId                                 String
+  amount                                     Decimal  @db.Decimal(10, 2)
+  date                                       DateTime
+  notes                                      String?
+  recordedById                               String
+  createdAt                                  DateTime @default(now())
+  User_TransportAllowance_employeeIdToUser   User     @relation("TransportAllowance_employeeIdToUser", fields: [employeeId], references: [id])
+  User_TransportAllowance_recordedByIdToUser User     @relation("TransportAllowance_recordedByIdToUser", fields: [recordedById], references: [id])
+}
+
 enum Role {
   ADMIN
   MANAGER
@@ -774,6 +932,8 @@ enum Role {
   KITCHEN
   BAR
   DELIVERY_RIDER
+  STOREKEEPER
+  IT
 }
 
 enum LoginType {
@@ -911,3 +1071,33 @@ enum RequisitionCategory {
   CLEANING_SUPPLIES
   OTHER
 }
+
+enum CashSessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum PrintJobType {
+  KITCHEN_TICKET
+  BAR_TICKET
+  RECEIPT
+  BILL
+  DAILY_REPORT
+}
+
+enum PrintStatus {
+  PENDING
+  PRINTED
+  FAILED
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED_BY_BAR
+  APPROVED_BY_KITCHEN
+  REJECTED
+  MANAGER_APPROVED
+  MANAGER_REJECTED
+}
+
+
