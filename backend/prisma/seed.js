@@ -101,11 +101,12 @@ async function main() {
   });
 
   // Bar Staff - Patrick (Barman 2 - PIN login)
-  const patrickBar = await prisma.user.upsert({
-    where: { email: 'patrick.bar@sammy.rw' },
+  // Bar Staff - Charles (Barman 2 - PIN login)
+  const charlesBar = await prisma.user.upsert({
+    where: { email: 'charles.bar@sammy.rw' },
     update: {},
     create: {
-      email: 'patrick.bar@sammy.rw', pin: patrickBarPin, name: 'Patrick (Bar)',
+      email: 'charles.bar@sammy.rw', pin: charlesBarPin, name: 'Charles (Bar)',
       role: 'BAR', loginType: 'PIN',
       profile: { create: { employmentDate: new Date('2022-06-15'), phone: '+250780000007', address: 'Kigali, Rwanda' } },
     },
