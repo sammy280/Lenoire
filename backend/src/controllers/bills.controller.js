@@ -68,10 +68,31 @@ const markBillPaid = async (req, res, next) => {
     if (!bill) return res.status(404).json({ success: false, message: 'Bill not found' });
     if (bill.status === 'PAID') return res.status(409).json({ success: false, message: 'Bill already paid' });
 
+    // ── CashSession check ────────────────────────────────────────────────
+    // Every payment must belong to the currently OPEN register session.
+    // "Today's Revenue" is scoped to this session, not calendar day.
+    const openSession = await prisma.cashSession.findFirst({
+      where: { status: 'OPEN' },
+      orderBy: { openedAt: 'desc' },
+    });
+    if (!openSession) {
+      return res.status(409).json({
+        success: false,
+        message: 'No open cash session. Ask a cashier/manager to open the register before taking payments.',
+      });
+    }
+
     const receiptNum = `RCP-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
 
     const [updatedBill, payment] = await prisma.$transaction([
-      prisma.bill.update({ where: { id: bill.id }, data: { status: 'PAID' } }),
+      prisma.bill.update({
+        where: { id: bill.id },
+        data: {
+          status: 'PAID',
+          cashSessionId: openSession.id,
+          paidAt: new Date(),
+        },
+      }),
       prisma.payment.create({
         data: {
           receiptNumber: receiptNum,
@@ -83,10 +104,10 @@ const markBillPaid = async (req, res, next) => {
           mixedDetails,
         },
       }),
-    prisma.order.update({
-    where: { id: bill.orderId },
-    data: { status: 'COMPLETED' },
-  }),
+      prisma.order.update({
+        where: { id: bill.orderId },
+        data: { status: 'COMPLETED' },
+      }),
     ]);
 
     // If credit payment, create a CreditSale record
@@ -132,9 +153,10 @@ const markBillPaid = async (req, res, next) => {
 
 const getBills = async (req, res, next) => {
   try {
-    const { status, date } = req.query;
+    const { status, date, cashSessionId } = req.query;
     const where = {};
     if (status) where.status = status;
+    if (cashSessionId) where.cashSessionId = cashSessionId;
     if (date) {
       const d = new Date(date);
       where.createdAt = { gte: d, lt: new Date(d.getTime() + 86400000) };
