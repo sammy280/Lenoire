@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomUUID } = require('crypto');
 const router = express.Router();
 const prisma = require('../config/database');
 const { authenticate, authorize } = require('../middleware/auth');
@@ -84,21 +85,22 @@ router.post(
       }
 
       const session = await prisma.cashSession.create({
-        data: {
-          status: 'OPEN',
-          openedById: req.user.id,
-          openingCashAmount:
-            openingCashAmount != null
-              ? parseFloat(openingCashAmount)
-              : null,
-          openingNote,
-        },
-        include: {
-          User_CashSession_openedByIdToUser: {
-            select: { id: true, name: true },
-          },
-        },
-      });
+  data: {
+    id: randomUUID(),
+    status: 'OPEN',
+    openedById: req.user.id,
+    openingCashAmount:
+      openingCashAmount != null
+        ? parseFloat(openingCashAmount)
+        : null,
+    openingNote,
+  },
+  include: {
+    User_CashSession_openedByIdToUser: {
+      select: { id: true, name: true },
+    },
+  },
+});
 
       const data = {
         ...session,
