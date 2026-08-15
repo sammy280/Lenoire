@@ -23,6 +23,7 @@ async function main() {
   const charlesBarPin = await bcrypt.hash('9999', 12);
   const rachelPin    = await bcrypt.hash('1234', 12);
   const charlersPin   = await bcrypt.hash('4321', 12);
+  const LadoucePin = await bcrypt.hash('1000', 12);
 
   // Admin 1 - Mory Kaba
   const mory = await prisma.user.upsert({
@@ -196,6 +197,15 @@ async function main() {
       profile: { create: { employmentDate: new Date('2023-03-10'), phone: '+250780000017', address: 'Kigali, Rwanda' } },
     },
   });
+  const ladouce = await prisma.user.upsert({
+    where: { email: 'Ladouce@sammy.rw' },
+    update: {}, 
+    create: {
+      email: 'Ladouce@sammy.rw', pin: LadoucePin, name: 'Ladouce',
+      role: 'WAITER', loginType: 'PIN',
+      profile: { create: { employmentDate: new Date('2023-04-10'), phone: '+250780000018', address: 'Kigali, Rwanda' } },
+    },
+  });
   console.log('✅ Users created');
 
   // ===== CATEGORIES =====
@@ -255,6 +265,7 @@ async function main() {
     { name: 'Chicken brochette', price: 4000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'Fish brochette', price: 4000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'Whole chicken(inzungu)', price: 22000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
+    { name: 'Beef stew', price: 9000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'HALF chicken', price: 13000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'HALF PORK', price: 6000, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },
     { name: 'Impyiko', price: 2500, categoryId: cats['BBQ'], isFeatured: true, preparationTime: 20 },

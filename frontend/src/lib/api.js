@@ -22,5 +22,17 @@ api.interceptors.response.use(
     return Promise.reject(err.response?.data || err);
   }
 );
+import { useAuthStore } from '../store/authStore';
+
+api.interceptors.response.use(
+  (res) => res.data,
+  (err) => {
+    if (err.response?.status === 401) {
+      useAuthStore.getState().logout();
+      window.location.href = '/login';
+    }
+    return Promise.reject(err.response?.data || err);
+  }
+);
 
 export default api;
