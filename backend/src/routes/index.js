@@ -10,6 +10,7 @@ router.use('/kitchen', require('./kitchen.routes'));
 router.use('/bar', require('./bar.routes'));
 router.use('/bills', require('./bills.routes'));
 router.use('/payments', require('./payments.routes'));
+router.use('/cash-sessions', require('./cashSessions.routes'));
 router.use('/inventory', require('./inventory.routes'));
 router.use('/suppliers', require('./suppliers.routes'));
 router.use('/attendance', require('./attendance.routes'));
