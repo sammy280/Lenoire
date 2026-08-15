@@ -4,7 +4,7 @@ import { formatCurrency, formatDateTime, cn } from '../../lib/utils';
 import Badge from '../../components/shared/Badge';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
-import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, Scissors, ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
+import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, Scissors, ChevronDown, ChevronUp, Minus, Plus, Lock, Unlock } from 'lucide-react';
 import PrintBill from '../../components/shared/PrintBill';
 import { useState, useEffect } from 'react';
 import { getSocket } from '../../lib/socket';
@@ -44,12 +44,27 @@ export default function CashierDashboard() {
   const [separateDestChoice, setSeparateDestChoice] = useState(null); // 'merge' | 'new'
   const [separateError, setSeparateError] = useState('');
 
+  // Cash session state
+  const [sessionModal, setSessionModal] = useState(null); // 'open' | 'close' | null
+  const [openingAmount, setOpeningAmount] = useState('');
+  const [openingNote, setOpeningNote] = useState('');
+  const [countedCash, setCountedCash] = useState('');
+  const [closingNote, setClosingNote] = useState('');
+
   const qc = useQueryClient();
 
   const { data: bills } = useQuery({ queryKey: ['bills'], queryFn: () => api.get('/bills'), refetchInterval: 10000 });
   const { data: orders } = useQuery({ queryKey: ['orders', 'active'], queryFn: () => api.get('/orders?status=SERVED'), refetchInterval: 10000 });
   const { data: onlineOrders } = useQuery({ queryKey: ['online-orders', 'pending'], queryFn: () => api.get('/online/all-orders'), refetchInterval: 10000 });
   const { data: tables } = useQuery({ queryKey: ['tables'], queryFn: () => api.get('/tables'), refetchInterval: 15000 });
+
+  // Cash session — current open session (or null)
+  const { data: cashSession } = useQuery({
+    queryKey: ['cash-session-current'],
+    queryFn: () => api.get('/cash-sessions/current'),
+    refetchInterval: 15000,
+  });
+  const activeSession = cashSession?.data;
 
   const { data: tableDetail, isLoading: tableLoading } = useQuery({
     queryKey: ['table-detail', tableModal?.id],
@@ -101,6 +116,7 @@ export default function CashierDashboard() {
     mutationFn: ({ id, ...data }) => api.patch(`/bills/${id}/pay`, data),
     onSuccess: (data) => {
       qc.invalidateQueries(['bills']);
+      qc.invalidateQueries(['cash-session-current']);
       setPrintBill(data.data?.bill || selectedBill);
       setSelectedBill(null);
     },
@@ -134,6 +150,43 @@ export default function CashierDashboard() {
     },
   });
 
+  // ── Cash session mutations ────────────────────────────────────────────
+  const openSession = useMutation({
+    mutationFn: (data) => api.post('/cash-sessions/open', data),
+    onSuccess: () => {
+      qc.invalidateQueries(['cash-session-current']);
+      setSessionModal(null);
+      setOpeningAmount('');
+      setOpeningNote('');
+    },
+  });
+
+  const closeSession = useMutation({
+    mutationFn: ({ id, ...data }) => api.post(`/cash-sessions/${id}/close`, data),
+    onSuccess: () => {
+      qc.invalidateQueries(['cash-session-current']);
+      setSessionModal(null);
+      setCountedCash('');
+      setClosingNote('');
+    },
+  });
+
+  const handleOpenSession = () => {
+    openSession.mutate({
+      openingCashAmount: openingAmount || undefined,
+      openingNote: openingNote || undefined,
+    });
+  };
+
+  const handleCloseSession = () => {
+    if (!activeSession) return;
+    closeSession.mutate({
+      id: activeSession.id,
+      countedCash: countedCash || undefined,
+      closingNote: closingNote || undefined,
+    });
+  };
+
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
@@ -150,11 +203,15 @@ export default function CashierDashboard() {
       qc.invalidateQueries(['orders', 'active']);
       qc.invalidateQueries({ queryKey: ['table-detail'] });
     });
+    socket.on('cashSession:opened', () => qc.invalidateQueries(['cash-session-current']));
+    socket.on('cashSession:closed', () => qc.invalidateQueries(['cash-session-current']));
     return () => {
       socket.off('bill:generated');
       socket.off('order:served');
       socket.off('tables:merged');
       socket.off('order:separated');
+      socket.off('cashSession:opened');
+      socket.off('cashSession:closed');
     };
   }, []);
 
@@ -332,7 +389,21 @@ export default function CashierDashboard() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Cashier Dashboard" subtitle="Manage bills and payments" />
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <PageHeader title="Cashier Dashboard" subtitle="Manage bills and payments" />
+        <button
+          onClick={() => setSessionModal(activeSession ? 'close' : 'open')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border-2 transition-all',
+            activeSession
+              ? 'border-green-500/60 bg-green-500/10 text-green-400 hover:bg-green-500/20'
+              : 'border-red-500/60 bg-red-500/10 text-red-400 hover:bg-red-500/20'
+          )}
+        >
+          {activeSession ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+          {activeSession ? 'Register Open — Close' : 'Register Closed — Open'}
+        </button>
+      </div>
 
       {/* Stats: 2 cols on mobile, 4 on desktop */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1098,6 +1169,89 @@ export default function CashierDashboard() {
                     </button>
                   </div>
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cash Session Modal (Open / Close Register) ── */}
+      {sessionModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <h3 className="font-bold text-lg">
+                {sessionModal === 'open' ? '🔓 Open Cash Register' : '🔒 Close Cash Register'}
+              </h3>
+              <button onClick={() => setSessionModal(null)} className="p-1.5 hover:bg-accent rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {sessionModal === 'open' ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Opening Cash Amount (RWF)</label>
+                    <input
+                      type="number"
+                      value={openingAmount}
+                      onChange={e => setOpeningAmount(e.target.value)}
+                      placeholder="e.g. 20000"
+                      className="w-full px-4 py-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Note (optional)</label>
+                    <textarea
+                      value={openingNote}
+                      onChange={e => setOpeningNote(e.target.value)}
+                      rows={2}
+                      className="w-full px-4 py-2 bg-background border border-border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                  </div>
+                  <button
+                    onClick={handleOpenSession}
+                    disabled={openSession.isPending}
+                    className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl disabled:opacity-50"
+                  >
+                    {openSession.isPending ? 'Opening…' : 'Open Register'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="bg-accent/50 rounded-lg p-4 space-y-1.5 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Opened by</span><span className="font-medium">{activeSession?.openedBy?.name}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Bills paid</span><span className="font-medium">{activeSession?.billCount ?? 0}</span></div>
+                    <div className="flex justify-between font-bold pt-1.5 border-t border-border"><span>Total Revenue</span><span className="text-primary">{formatCurrency(activeSession?.totalRevenue || 0)}</span></div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Counted Cash (RWF)</label>
+                    <input
+                      type="number"
+                      value={countedCash}
+                      onChange={e => setCountedCash(e.target.value)}
+                      placeholder="Count the drawer and enter total"
+                      className="w-full px-4 py-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Closing Note (optional)</label>
+                    <textarea
+                      value={closingNote}
+                      onChange={e => setClosingNote(e.target.value)}
+                      rows={2}
+                      className="w-full px-4 py-2 bg-background border border-border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                  </div>
+                  <button
+                    onClick={handleCloseSession}
+                    disabled={closeSession.isPending}
+                    className="w-full py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl disabled:opacity-50"
+                  >
+                    {closeSession.isPending ? 'Closing…' : 'Close Register'}
+                  </button>
+                </>
               )}
             </div>
           </div>
