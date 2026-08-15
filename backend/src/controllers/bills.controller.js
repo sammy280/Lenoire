@@ -18,8 +18,13 @@ const generateBill = async (req, res, next) => {
 
     const subtotal = order.items.reduce((sum, item) => sum + (parseFloat(item.unitPrice) * item.quantity), 0);
     const taxRate = parseFloat(process.env.TAX_RATE || '0') / 100;
-    const tax = subtotal * taxRate;
-    const total = subtotal + tax - parseFloat(discount);
+
+    // Menu prices are tax-inclusive (VAT already baked into unitPrice).
+    // Normal bills: no tax breakdown shown, customer pays the sticker price.
+    // EBM bills: extract the VAT component from the inclusive price for
+    // tax reporting — we never add tax on top of what's already priced in.
+    const tax = billType === 'EBM' ? subtotal - (subtotal / (1 + taxRate)) : 0;
+    const total = subtotal - parseFloat(discount);
 
     const bill = await prisma.bill.create({
       data: {
