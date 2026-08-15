@@ -111,7 +111,7 @@ const markBillPaid = async (req, res, next) => {
       }),
       prisma.order.update({
         where: { id: bill.orderId },
-        data: { status: 'COMPLETED' },
+        data: { status: 'SERVED' },
       }),
     ]);
 
