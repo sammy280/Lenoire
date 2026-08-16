@@ -70,20 +70,20 @@ async function main() {
 
   // Cashier 2 - Patrick
   const patrickCashier = await prisma.user.upsert({
-    where: { email: 'patrick.cashier@sammy.rw' },
+    where: { email: 'charlers.cashier@sammy.rw' },
     update: {},
     create: {
-      email: 'patrick.cashier@sammy.rw', passwordHash: cashierPassword, name: 'Patrick',
+      email: 'charlers.cashier@sammy.rw', passwordHash: cashierPassword, name: 'Patrick',
       role: 'CASHIER', loginType: 'EMAIL_PASSWORD',
       profile: { create: { employmentDate: new Date('2022-02-15'), phone: '+250780000005', address: 'Kigali, Rwanda' } },
     },
   });
 
   const storekeeper = await prisma.user.upsert({  
-    where: { email: 'charlers.storekeeper@sammy.rw' },
+    where: { email: 'Mbabazi.storekeeper@sammy.rw' },
     update: {},
     create: {
-      email: 'charlers.storekeeper@sammy.rw', passwordHash: storekeeperPassword, name: 'Charles',
+      email: 'Mbabazi.storekeeper@sammy.rw', passwordHash: storekeeperPassword, name: 'Mbabazi',
       role: 'STOREKEEPER', loginType: 'EMAIL_PASSWORD',
       profile: { create: { employmentDate: new Date('2021-05-01'), phone: '+250780000015', address: 'Kigali, Rwanda' } }, 
     },
