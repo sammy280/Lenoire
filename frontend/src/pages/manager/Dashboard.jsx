@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
@@ -11,9 +11,18 @@ import {
 import Badge from '../../components/shared/Badge';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { getSocket } from '../../lib/socket';
 
 export default function ManagerDashboard() {
+  const qc = useQueryClient();
+
   const { data: dash } = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get('/analytics/dashboard'), refetchInterval: 30000 });
+  const { data: cashSession } = useQuery({
+    queryKey: ['cash-session-current'],
+    queryFn: () => api.get('/cash-sessions/current'),
+    refetchInterval: 15000,
+  });
   const { data: revenue } = useQuery({ queryKey: ['revenue'], queryFn: () => api.get('/analytics/revenue?type=monthly') });
   const { data: inventory } = useQuery({ queryKey: ['inventory', 'low'], queryFn: () => api.get('/inventory?lowStock=true') });
   const { data: recentOrders } = useQuery({ queryKey: ['orders', 'recent'], queryFn: () => api.get('/orders'), refetchInterval: 15000 });
@@ -27,6 +36,7 @@ export default function ManagerDashboard() {
   const { data: creditSales } = useQuery({ queryKey: ['credit-sales'], queryFn: () => api.get('/credit-sales') });
 
   const stats = dash?.data?.today;
+  const activeSession = cashSession?.data;
   const dp = dailyPreview?.data;
   const pendingReqs = requisitions?.data?.length || 0;
   const activeEmployees = (users?.data || []).filter(u => u.isActive).length;
@@ -35,13 +45,24 @@ export default function ManagerDashboard() {
     .filter(c => c.status !== 'PAID')
     .reduce((s, c) => s + parseFloat(c.balance || 0), 0);
 
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    socket.on('cashSession:opened', () => qc.invalidateQueries(['cash-session-current']));
+    socket.on('cashSession:closed', () => qc.invalidateQueries(['cash-session-current']));
+    return () => {
+      socket.off('cashSession:opened');
+      socket.off('cashSession:closed');
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       <PageHeader title="Manager Dashboard" subtitle="Daily operations overview" />
 
       {/* Primary KPIs — 2 cols on mobile, 4 on md+ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard title="Today's Revenue" value={formatCurrency(dp?.totalRevenue || stats?.revenue || 0)} icon={DollarSign} color="primary" />
+        <StatCard title="Today's Revenue" value={formatCurrency(activeSession?.totalRevenue || 0)} icon={DollarSign} color="primary" />
         <StatCard title="Orders Today" value={stats?.orders || 0} icon={ShoppingCart} color="blue" />
         <StatCard title="Active Orders" value={stats?.activeOrders || 0} icon={Clock} color="orange" />
         <StatCard title="Employees" value={activeEmployees} icon={Users} color="green" />
@@ -54,21 +75,21 @@ export default function ManagerDashboard() {
             <Banknote className="w-4 h-4 text-green-400" />
             <span className="text-sm text-muted-foreground">Cash Today</span>
           </div>
-          <p className="text-2xl font-bold text-green-400">{formatCurrency(dp?.totalCash || 0)}</p>
+          <p className="text-2xl font-bold text-green-400">{formatCurrency(activeSession?.totalCash || 0)}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-5">
           <div className="flex items-center gap-2 mb-1">
             <Smartphone className="w-4 h-4 text-blue-400" />
             <span className="text-sm text-muted-foreground">MoMo Today</span>
           </div>
-          <p className="text-2xl font-bold text-blue-400">{formatCurrency(dp?.totalMomo || 0)}</p>
+          <p className="text-2xl font-bold text-blue-400">{formatCurrency(activeSession?.totalMomo || 0)}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-5">
           <div className="flex items-center gap-2 mb-1">
             <CreditCard className="w-4 h-4 text-orange-400" />
             <span className="text-sm text-muted-foreground">Credit Given</span>
           </div>
-          <p className="text-2xl font-bold text-orange-400">{formatCurrency(dp?.totalCredit || 0)}</p>
+          <p className="text-2xl font-bold text-orange-400">{formatCurrency(activeSession?.totalCredit || 0)}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-5">
           <div className="flex items-center gap-2 mb-1">

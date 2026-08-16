@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
@@ -16,11 +16,19 @@ import { getSocket } from '../../lib/socket';
 import Badge from '../../components/shared/Badge';
 
 export default function AdminDashboard() {
+  const qc = useQueryClient();
+
   const { data: dash, refetch: refetchDash } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get('/analytics/dashboard'),
     refetchInterval: 30000,
   });
+  const { data: cashSession } = useQuery({
+    queryKey: ['cash-session-current'],
+    queryFn: () => api.get('/cash-sessions/current'),
+    refetchInterval: 15000,
+  });
+  const activeSession = cashSession?.data;
   const { data: analytics } = useQuery({
     queryKey: ['analytics', 'sales'],
     queryFn: () => api.get('/analytics/sales?period=monthly'),
@@ -54,7 +62,14 @@ export default function AdminDashboard() {
     if (!socket) return;
     socket.on('order:new', () => refetchDash());
     socket.on('bill:paid', () => refetchDash());
-    return () => { socket.off('order:new'); socket.off('bill:paid'); };
+    socket.on('cashSession:opened', () => qc.invalidateQueries(['cash-session-current']));
+    socket.on('cashSession:closed', () => qc.invalidateQueries(['cash-session-current']));
+    return () => {
+      socket.off('order:new');
+      socket.off('bill:paid');
+      socket.off('cashSession:opened');
+      socket.off('cashSession:closed');
+    };
   }, []);
 
   return (
@@ -66,7 +81,7 @@ export default function AdminDashboard() {
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <StatCard title="Today's Revenue"  value={formatCurrency(stats?.revenue || 0)}    icon={DollarSign}    color="primary" />
+        <StatCard title="Today's Revenue"  value={formatCurrency(activeSession?.totalRevenue || 0)}    icon={DollarSign}    color="primary" />
         <StatCard title="Orders Today"     value={stats?.orders || 0}                      icon={ShoppingCart}  color="blue" />
         <StatCard title="Active Orders"    value={stats?.activeOrders || 0}                icon={Clock}         color="orange" />
         <StatCard title="Pending Bills"    value={stats?.pendingBills || 0}                icon={CheckCircle}   color="yellow" />
