@@ -14,6 +14,9 @@ const CLOSED_BY = 'User_CashSession_closedByIdToUser';
 
 // ── GET /current ─────────────────────────────────────────────────────────
 // Returns the currently open session (or null), plus live revenue totals.
+// ── GET /current ─────────────────────────────────────────────────────────
+// Returns the currently open session (or null), plus live revenue totals
+// and order counts scoped to "since this session opened."
 router.get('/current', authenticate, async (req, res, next) => {
   try {
     const session = await prisma.cashSession.findFirst({
@@ -33,15 +36,29 @@ router.get('/current', authenticate, async (req, res, next) => {
       });
     }
 
-    const paidBills = await prisma.bill.findMany({
-      where: {
-        cashSessionId: session.id,
-        status: 'PAID',
-      },
-      include: {
-        payment: true,
-      },
-    });
+    const [paidBills, ordersToday, activeOrders] = await Promise.all([
+      prisma.bill.findMany({
+        where: {
+          cashSessionId: session.id,
+          status: 'PAID',
+        },
+        include: {
+          payment: true,
+        },
+      }),
+      prisma.order.count({
+        where: {
+          createdAt: { gte: session.openedAt },
+          status: { not: 'CANCELLED' },
+        },
+      }),
+      prisma.order.count({
+        where: {
+          createdAt: { gte: session.openedAt },
+          status: { in: ['PENDING', 'PREPARING', 'READY', 'SERVED'] },
+        },
+      }),
+    ]);
 
     const totals = summarizeBills(paidBills);
 
@@ -49,6 +66,8 @@ router.get('/current', authenticate, async (req, res, next) => {
       ...session,
       openedBy: session.User_CashSession_openedByIdToUser,
       ...totals,
+      ordersToday,
+      activeOrders,
     };
 
     delete data.User_CashSession_openedByIdToUser;

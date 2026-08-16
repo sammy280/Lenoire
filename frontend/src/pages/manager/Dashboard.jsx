@@ -63,8 +63,8 @@ export default function ManagerDashboard() {
       {/* Primary KPIs — 2 cols on mobile, 4 on md+ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard title="Today's Revenue" value={formatCurrency(activeSession?.totalRevenue || 0)} icon={DollarSign} color="primary" />
-        <StatCard title="Orders Today" value={stats?.orders || 0} icon={ShoppingCart} color="blue" />
-        <StatCard title="Active Orders" value={stats?.activeOrders || 0} icon={Clock} color="orange" />
+        <StatCard title="Orders Today" value={activeSession?.ordersToday || 0} icon={ShoppingCart} color="blue" />
+        <StatCard title="Active Orders" value={activeSession?.activeOrders || 0} icon={Clock} color="orange" />
         <StatCard title="Employees" value={activeEmployees} icon={Users} color="green" />
       </div>
 

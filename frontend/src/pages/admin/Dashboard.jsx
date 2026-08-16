@@ -82,8 +82,8 @@ export default function AdminDashboard() {
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <StatCard title="Today's Revenue"  value={formatCurrency(activeSession?.totalRevenue || 0)}    icon={DollarSign}    color="primary" />
-        <StatCard title="Orders Today"     value={stats?.orders || 0}                      icon={ShoppingCart}  color="blue" />
-        <StatCard title="Active Orders"    value={stats?.activeOrders || 0}                icon={Clock}         color="orange" />
+        <StatCard title="Orders Today"     value={activeSession?.ordersToday || 0}         icon={ShoppingCart}  color="blue" />
+        <StatCard title="Active Orders"    value={activeSession?.activeOrders || 0}        icon={Clock}         color="orange" />
         <StatCard title="Pending Bills"    value={stats?.pendingBills || 0}                icon={CheckCircle}   color="yellow" />
         <StatCard title="Low Stock"        value={stats?.lowStockItems || 0}               icon={AlertTriangle} color="red" />
         <StatCard title="Attendance"       value={stats?.attendance || 0}                  icon={Users}         color="green" subtitle="Today" />
