@@ -220,7 +220,9 @@ export default function CashierDashboard() {
   const waitingOrders = allServed.filter(o => !o.billRequested && !o.bill);
   const generatedBills = (bills?.data || []).filter(b => b.status === 'GENERATED');
   const paidToday = (bills?.data || []).filter(b => b.status === 'PAID' && new Date(b.updatedAt) > new Date(new Date().setHours(0, 0, 0, 0)));
-  const totalToday = paidToday.reduce((s, b) => s + parseFloat(b.total), 0);
+// Revenue is scoped to the current cash session, not calendar midnight —
+// this is what makes it reset to 0 the moment a new register session opens.
+const totalToday = activeSession ? parseFloat(activeSession.totalRevenue || 0) : 0;
   const occupiedTables = (tables?.data || []).filter(t => t.status === 'OCCUPIED' || t.status === 'WAITING_PAYMENT');
   const allTables = tables?.data || [];
 
@@ -408,7 +410,7 @@ export default function CashierDashboard() {
       {/* Stats: 2 cols on mobile, 4 on desktop */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard title="Pending Bills" value={generatedBills.length} icon={Receipt} color="orange" />
-        <StatCard title="Paid Today" value={paidToday.length} icon={CheckCircle} color="green" />
+        <StatCard title="Paid Today" value={activeSession?.billCount ?? 0} icon={CheckCircle} color="green" />
         <StatCard title="Today's Revenue" value={formatCurrency(totalToday)} icon={DollarSign} color="primary" />
         <StatCard title="Bill Requests" value={billRequestedOrders.length} icon={Clock} color={billRequestedOrders.length > 0 ? 'primary' : 'blue'} subtitle={billRequestedOrders.length > 0 ? '⚡ Action needed' : 'No requests'} />
       </div>

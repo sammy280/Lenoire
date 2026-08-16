@@ -69,7 +69,7 @@ async function main() {
   });
 
   // Cashier 2 - Patrick
-  const patrickCashier = await prisma.user.upsert({
+  const charlersCashier = await prisma.user.upsert({
     where: { email: 'charlers.cashier@sammy.rw' },
     update: {},
     create: {
