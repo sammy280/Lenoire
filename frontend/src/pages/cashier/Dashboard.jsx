@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { formatCurrency, formatDateTime, cn } from '../../lib/utils';
+import { useAuthStore } from '../../store/authStore';
 import Badge from '../../components/shared/Badge';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
+import BarQueue from '../../components/shared/BarQueue';
 import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, Scissors, ChevronDown, ChevronUp, Minus, Plus, Lock, Unlock } from 'lucide-react';
 import PrintBill from '../../components/shared/PrintBill';
 import { useState, useEffect } from 'react';
@@ -13,6 +15,9 @@ const PAYMENT_METHODS = ['CASH', 'MOBILE_MONEY', 'CREDIT_CARD', 'DEBIT_CARD', 'B
 const BILL_TYPES = ['NORMAL', 'EBM'];
 
 export default function CashierDashboard() {
+  const { user } = useAuthStore();
+  const [activeTab, setActiveTab] = useState('cashier'); // 'cashier' | 'bar'
+
   const [selectedBill, setSelectedBill] = useState(null);
   const [printBill, setPrintBill] = useState(null);
   const [payMethod, setPayMethod] = useState('CASH');
@@ -391,6 +396,31 @@ const totalToday = activeSession ? parseFloat(activeSession.totalRevenue || 0) :
 
   return (
     <div className="space-y-6">
+      {user?.secondaryRole === 'BAR' && (
+        <div className="flex gap-2 bg-accent/40 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setActiveTab('cashier')}
+            className={cn('px-4 py-2 rounded-lg text-sm font-bold transition-all',
+              activeTab === 'cashier' ? 'bg-card shadow text-primary' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            💵 Cashier
+          </button>
+          <button
+            onClick={() => setActiveTab('bar')}
+            className={cn('px-4 py-2 rounded-lg text-sm font-bold transition-all',
+              activeTab === 'bar' ? 'bg-card shadow text-primary' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            🍺 Bar Tasks
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'bar' && user?.secondaryRole === 'BAR' ? (
+        <BarQueue />
+      ) : (
+      <>
       <div className="flex items-center justify-between flex-wrap gap-3">
         <PageHeader title="Cashier Dashboard" subtitle="Manage bills and payments" />
         <button
@@ -1261,6 +1291,8 @@ const totalToday = activeSession ? parseFloat(activeSession.totalRevenue || 0) :
       )}
 
       {printBill && <PrintBill bill={printBill} onClose={() => setPrintBill(null)} />}
+      </>
+      )}
     </div>
   );
 }
