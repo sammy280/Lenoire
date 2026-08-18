@@ -1,5 +1,5 @@
 import { Wine } from 'lucide-react';
-import BarQueue from '../../components/shared/BarQueue';
+import BarQueue from '../shared/BarQueue';
 
 export default function BarDashboard() {
   return (
