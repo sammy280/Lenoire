@@ -5,7 +5,7 @@ import { useAuthStore } from '../../store/authStore';
 import Badge from '../../components/shared/Badge';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
-import BarQueue from '../../components/shared/BarQueue';
+import BarQueue from '../shared/BarQueue';
 import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, Scissors, ChevronDown, ChevronUp, Minus, Plus, Lock, Unlock } from 'lucide-react';
 import PrintBill from '../../components/shared/PrintBill';
 import { useState, useEffect } from 'react';
