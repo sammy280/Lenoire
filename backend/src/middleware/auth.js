@@ -49,7 +49,10 @@ const authorize = (...roles) => (req, res, next) => {
   if (req.user.role === 'IT') {
     return next();
   }
-  if (!roles.includes(req.user.role)) {
+  const hasAccess =
+    roles.includes(req.user.role) ||
+    (req.user.secondaryRole && roles.includes(req.user.secondaryRole));
+  if (!hasAccess) {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
   next();
