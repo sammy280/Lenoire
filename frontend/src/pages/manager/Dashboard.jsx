@@ -162,23 +162,28 @@ export default function ManagerDashboard() {
         <h3 className="font-semibold mb-4">Recent Orders</h3>
         <div className="overflow-x-auto -mx-5 px-5">
           <table className="w-full text-sm min-w-[480px]">
-            <thead><tr className="text-muted-foreground border-b border-border">
+                        <thead><tr className="text-muted-foreground border-b border-border">
               <th className="text-left pb-3 font-medium">Order #</th>
               <th className="text-left pb-3 font-medium">Table</th>
               <th className="text-left pb-3 font-medium">Waiter</th>
+              <th className="text-left pb-3 font-medium">Amount</th>
               <th className="text-left pb-3 font-medium">Status</th>
               <th className="text-left pb-3 font-medium">Time</th>
             </tr></thead>
             <tbody>
-              {(recentOrders?.data || []).slice(0, 10).map(order => (
-                <tr key={order.id} className="border-b border-border/50">
-                  <td className="py-2 font-mono text-xs text-primary">{order.orderNumber}</td>
-                  <td className="py-2">Table {order.table?.name} {order.seat?.label}</td>
-                  <td className="py-2">{order.waiter?.name}</td>
-                  <td className="py-2"><Badge status={order.status} /></td>
-                  <td className="py-2 text-muted-foreground text-xs">{formatDateTime(order.createdAt)}</td>
-                </tr>
-              ))}
+              {(recentOrders?.data || []).slice(0, 10).map(order => {
+                const amount = order.bill?.total ?? (order.items || []).reduce((s, i) => s + parseFloat(i.unitPrice) * i.quantity, 0);
+                return (
+                  <tr key={order.id} className="border-b border-border/50">
+                    <td className="py-2 font-mono text-xs text-primary">{order.orderNumber}</td>
+                    <td className="py-2">Table {order.table?.name} {order.seat?.label}</td>
+                    <td className="py-2">{order.waiter?.name}</td>
+                    <td className="py-2 font-semibold">{formatCurrency(amount)}</td>
+                    <td className="py-2"><Badge status={order.status} /></td>
+                    <td className="py-2 text-muted-foreground text-xs">{formatDateTime(order.createdAt)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
