@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
 import PageHeader from '../../components/shared/PageHeader';
 import { FileText, RefreshCw, Download, ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 function exportToCSV(report) {
   const rows = [
@@ -31,12 +32,14 @@ function exportToCSV(report) {
     ['Notes', report.notes || ''],
     ['Created By', report.createdBy?.name],
   ];
-  const csv = rows.map(r => r.join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url;
-  a.download = `daily-report-${new Date(report.date).toISOString().slice(0, 10)}.csv`;
-  a.click(); URL.revokeObjectURL(url);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 18 }, { wch: 12 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Daily Report');
+
+  XLSX.writeFile(wb, `daily-report-${new Date(report.date).toISOString().slice(0, 10)}.xlsx`);
 }
 
 export default function DailyReport() {
