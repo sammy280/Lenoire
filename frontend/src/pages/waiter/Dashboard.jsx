@@ -88,14 +88,24 @@ export default function WaiterDashboard() {
     onSuccess: () => qc.invalidateQueries(['my-served-orders']),
   });
 
-  useEffect(() => {
+    useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
     const handleNotif = (notif) => {
       if (notif.type === 'KITCHEN_UPDATE' || notif.type === 'BAR_UPDATE') qc.invalidateQueries(['my-orders']);
     };
+    const handlePaid = () => {
+      qc.invalidateQueries(['my-served-orders']);
+      qc.invalidateQueries(['table-orders']);
+      qc.invalidateQueries(['seat-order']);
+      qc.invalidateQueries(['tables']);
+    };
     socket.on('notification:new', handleNotif);
-    return () => socket.off('notification:new', handleNotif);
+    socket.on('bill:paid', handlePaid);
+    return () => {
+      socket.off('notification:new', handleNotif);
+      socket.off('bill:paid', handlePaid);
+    };
   }, []);
 
   const addToCart = (product) => {
@@ -134,6 +144,7 @@ export default function WaiterDashboard() {
     (!o.barOrder     || ['READY', 'SERVED'].includes(o.barOrder?.status)) &&
     o.status !== 'SERVED'
   );
+    const unpaidServedOrders = (servedOrders?.data || []).filter(o => o.bill?.status !== 'PAID');
 
   const handleSeatClick = (seat) => {
     if (seat.isOccupied && !isMySeat(seat.id)) return;
@@ -152,7 +163,7 @@ export default function WaiterDashboard() {
     }
   };
 
-  const totalOrderCount = (myOrders?.data || []).length + (servedOrders?.data || []).length;
+    const totalOrderCount = (myOrders?.data || []).length + unpaidServedOrders.length;
 
   // ── Shared orders panel content ──────────────────────────────────────────
   const OrdersPanel = () => (
@@ -211,12 +222,12 @@ export default function WaiterDashboard() {
         </div>
       )}
 
-      {(servedOrders?.data || []).length > 0 && (
+            {unpaidServedOrders.length > 0 && (
         <>
           <div className="pt-2 pb-1 px-1">
             <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">🧾 Served — Bill</p>
           </div>
-          {(servedOrders?.data || []).map(order => {
+          {unpaidServedOrders.map(order => {
             const hasBill   = !!order.bill;
             const billPaid  = order.bill?.status === 'PAID';
             const billRequested = order.billRequested;
