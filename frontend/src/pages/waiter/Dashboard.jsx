@@ -139,14 +139,18 @@ export default function WaiterDashboard() {
     return { billNumber: 'PREVIEW', subtotal, tax: 0, discount: 0, total: subtotal, order: { ...order, items } };
   };
 
-  // An order is servable as soon as EITHER its kitchen component OR its bar
-  // component is ready (or the order has no such component at all) — waiters
-  // deliver whichever part is ready first rather than waiting on both.
-  const readyOrders = (myOrders?.data || []).filter(o => {
-    const kitchenReady = !o.kitchenOrder || ['READY', 'SERVED'].includes(o.kitchenOrder?.status);
-    const barReady     = !o.barOrder     || ['READY', 'SERVED'].includes(o.barOrder?.status);
-    return (kitchenReady || barReady) && o.status !== 'SERVED';
-  });
+  // An order is servable once at least one of its EXISTING components
+  // (kitchen and/or bar) is actually ready. A missing component only counts
+  // as "vacuously ready" when the order has neither component at all —
+  // otherwise a drink-only or food-only order would show as ready instantly.
+  const isOrderReadyToServe = (o) => {
+    const kitchenDone = o.kitchenOrder ? ['READY', 'SERVED'].includes(o.kitchenOrder.status) : null;
+    const barDone = o.barOrder ? ['READY', 'SERVED'].includes(o.barOrder.status) : null;
+    const applicable = [kitchenDone, barDone].filter(v => v !== null);
+    return applicable.length === 0 ? true : applicable.some(Boolean);
+  };
+
+  const readyOrders = (myOrders?.data || []).filter(o => isOrderReadyToServe(o) && o.status !== 'SERVED');
     const unpaidServedOrders = (servedOrders?.data || []).filter(o => o.bill?.status !== 'PAID');
 
   const handleSeatClick = (seat) => {
@@ -172,11 +176,9 @@ export default function WaiterDashboard() {
   const OrdersPanel = () => (
     <>
       {(myOrders?.data || []).map(order => {
-        const kitchenReady = !order.kitchenOrder || ['READY', 'SERVED'].includes(order.kitchenOrder?.status);
-        const barReady     = !order.barOrder     || ['READY', 'SERVED'].includes(order.barOrder?.status);
-        // Show the serve button as soon as EITHER side is ready — waiters
-        // often deliver drinks while food is still being prepared, or vice versa.
-        const anyReady     = kitchenReady || barReady;
+        // Uses the same isOrderReadyToServe logic as the banner above — only
+        // counts a component's readiness if that component actually exists.
+        const anyReady = isOrderReadyToServe(order);
         return (
           <div key={order.id} className={cn(
             'bg-background border rounded-xl p-3 space-y-2 text-sm',
