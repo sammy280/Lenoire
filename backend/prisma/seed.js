@@ -55,24 +55,24 @@ async function main() {
     },
   });
 
-  // Cashier 1 - Safi
+  // Cashier 1 - Safi (also covers Bar Tasks)
   const safiCashier = await prisma.user.upsert({
     where: { email: 'safi.cashier@sammy.rw' },
-    update: {},
+    update: { secondaryRole: 'BAR' },
     create: {
       email: 'safi.cashier@sammy.rw', passwordHash: cashierPassword, name: 'Safi',
-      role: 'CASHIER', loginType: 'EMAIL_PASSWORD',
+      role: 'CASHIER', secondaryRole: 'BAR', loginType: 'EMAIL_PASSWORD',
       profile: { create: { employmentDate: new Date('2022-01-10'), phone: '+250780000004', address: 'Kigali, Rwanda' } },
     },
   });
 
-  // Cashier 2 - Patrick
+  // Cashier 2 - Charles (also covers Bar Tasks)
   const charlersCashier = await prisma.user.upsert({
     where: { email: 'charlers.cashier@sammy.rw' },
-    update: {},
+    update: { secondaryRole: 'BAR' },
     create: {
       email: 'charlers.cashier@sammy.rw', passwordHash: cashierPassword, name: 'Charles',
-      role: 'CASHIER', loginType: 'EMAIL_PASSWORD',
+      role: 'CASHIER', secondaryRole: 'BAR', loginType: 'EMAIL_PASSWORD',
       profile: { create: { employmentDate: new Date('2022-02-15'), phone: '+250780000005', address: 'Kigali, Rwanda' } },
     },
   });
@@ -413,7 +413,7 @@ async function main() {
     { name: 'Strawberry Smoothie', price: 2500, categoryId: cats['Smoothies'], preparationTime: 5 },
     { name: 'Olmeca shot', price: 8000, categoryId: cats['Tequila'], preparationTime: 2, description: 'SHOT' },
     { name: 'Olmeca', price: 150000, categoryId: cats['Tequila'], preparationTime: 2, description: 'Bottle' },
-    { name: 'tequila camino shot', price: 5000, categoryId: cats['Tequila'], preparationTime: 2, description: 'SHOT ' },
+    { name: 'TEQUILA CAMINO SHOT', price: 5000, categoryId: cats['Tequila'], preparationTime: 2, description: 'SHOT' },
     { name: 'Fresh Orange Juice', price: 1500, categoryId: cats['Juice'], preparationTime: 5 },
     { name: 'Mango Juice', price: 5000, categoryId: cats['Juice'], preparationTime: 5 }, 
     { name: 'Lemon juice', price: 4000, categoryId: cats['Juice'], preparationTime: 5 },
@@ -511,7 +511,7 @@ async function main() {
 
   // ===== SYSTEM SETTINGS =====
   const settings = [
-    { key: 'restaurant_name', value: 'Sammy Restaurant & Bar' },
+    { key: 'restaurant_name', value: 'LE MISTRAL' },
     { key: 'restaurant_address', value: 'Kigali, Rwanda' },
     { key: 'restaurant_phone', value: '+250780000000' },
     { key: 'restaurant_email', value: 'info@sammyrestaurant.rw' },
