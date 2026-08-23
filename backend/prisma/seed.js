@@ -18,11 +18,9 @@ async function main() {
   const poulletPin  = await bcrypt.hash('4444', 12);
   const cleverPin   = await bcrypt.hash('5555', 12);
   const BoniePin     = await bcrypt.hash('6666', 12);
-  const MuzehePin     = await bcrypt.hash('7777', 12);
-  const safiBarPin  = await bcrypt.hash('8888', 12);
-  const charlesBarPin = await bcrypt.hash('9999', 12);
+  const BenardPin     = await bcrypt.hash('7777', 12);
   const rachelPin    = await bcrypt.hash('1234', 12);
-  const charlersPin   = await bcrypt.hash('4321', 12);
+  const ladoucePin   = await bcrypt.hash('4321', 12);
 
   // Admin 1 - Mory Kaba
   const mory = await prisma.user.upsert({
@@ -73,7 +71,7 @@ async function main() {
     where: { email: 'charlers.cashier@sammy.rw' },
     update: {},
     create: {
-      email: 'charlers.cashier@sammy.rw', passwordHash: cashierPassword, name: 'Patrick',
+      email: 'charlers.cashier@sammy.rw', passwordHash: cashierPassword, name: 'Charles',
       role: 'CASHIER', loginType: 'EMAIL_PASSWORD',
       profile: { create: { employmentDate: new Date('2022-02-15'), phone: '+250780000005', address: 'Kigali, Rwanda' } },
     },
@@ -87,30 +85,7 @@ async function main() {
       role: 'STOREKEEPER', loginType: 'EMAIL_PASSWORD',
       profile: { create: { employmentDate: new Date('2021-05-01'), phone: '+250780000015', address: 'Kigali, Rwanda' } }, 
     },
-  });
-
-  // Bar Staff - Safi (Barman 1 - PIN login)
-  const safiBar = await prisma.user.upsert({
-    where: { email: 'safi.bar@sammy.rw' },
-    update: {},
-    create: {
-      email: 'safi.bar@sammy.rw', pin: safiBarPin, name: 'Safi (Bar)',
-      role: 'BAR', loginType: 'PIN',
-      profile: { create: { employmentDate: new Date('2022-06-01'), phone: '+250780000006', address: 'Kigali, Rwanda' } },
-    },
-  });
-
-  // Bar Staff - Patrick (Barman 2 - PIN login)
-  // Bar Staff - Charles (Barman 2 - PIN login)
-  const charlesBar = await prisma.user.upsert({
-    where: { email: 'charles.bar@sammy.rw' },
-    update: {},
-    create: {
-      email: 'charles.bar@sammy.rw', pin: charlesBarPin, name: 'Charles (Bar)',
-      role: 'BAR', loginType: 'PIN',
-      profile: { create: { employmentDate: new Date('2022-06-15'), phone: '+250780000007', address: 'Kigali, Rwanda' } },
-    },
-  });
+  });  
 
   // Kitchen - Clever (Head Chef)
   const clever = await prisma.user.upsert({
@@ -135,11 +110,11 @@ async function main() {
   });
 
   // Kitchen - Umun
-  const Muzehe = await prisma.user.upsert({
+  const Benard = await prisma.user.upsert({
     where: { email: 'umun@sammy.rw' },
     update: {},
     create: {
-      email: 'umun@sammy.rw', pin: MuzehePin, name: 'Muzehe',
+      email: 'umun@sammy.rw', pin: BenardPin, name: 'Benard',
       role: 'KITCHEN', loginType: 'PIN',
       profile: { create: { employmentDate: new Date('2022-04-01'), phone: '+250780000010', address: 'Kigali, Rwanda' } },
     },
@@ -187,11 +162,11 @@ async function main() {
       profile: { create: { employmentDate: new Date('2023-02-10'), phone: '+250780000016', address: 'Kigali, Rwanda' } }, 
     },
   });
-  const charlers = await prisma.user.upsert({ 
-    where: { email: 'charlers@sammy.rw' },
+  const Ladouce = await prisma.user.upsert({ 
+    where: { email: 'ladouce@sammy.rw' },
     update: {},
     create: {
-      email: 'charlers@sammy.rw', pin: charlersPin, name: 'Charler',
+      email: 'ladouce@sammy.rw', pin: ladoucePin, name: 'Ladouce',
       role: 'WAITER', loginType: 'PIN',
       profile: { create: { employmentDate: new Date('2023-03-10'), phone: '+250780000017', address: 'Kigali, Rwanda' } },
     },
@@ -355,7 +330,7 @@ async function main() {
     { name: 'African coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
     { name: 'Black coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
     { name: 'Regulaar coffe', price: 4000, categoryId: cats['Hot Tea'], preparationTime: 5 },
-    { name: 'Espresso', price: 4000, categoryId: cats['Coffee'], preparationTime: 5 },
+    { name: 'Black-tea', price: 1500, categoryId: cats['Coffee'], preparationTime: 5 },
     { name: 'Cappuccino', price: 3500, categoryId: cats['Coffee'], isFeatured: true, preparationTime: 5 },
     { name: 'Latte', price: 3500, categoryId: cats['Coffee'], preparationTime: 5 },
     { name: 'Cold Coffee', price: 4000, categoryId: cats['Coffee'], preparationTime: 5 },
@@ -395,6 +370,7 @@ async function main() {
     { name: 'Tusker malt', price: 3000, categoryId: cats['Beers'], preparationTime: 2 }, 
     { name: 'Tusker lager', price: 3000, categoryId: cats['Beers'], preparationTime: 2 },
     { name: 'Guiness', price: 3500, categoryId: cats['Beers'], preparationTime: 2 },
+    { name: 'Black label shot ', price: 5000, categoryId: cats['Cognac'], isFeatured: true, preparationTime: 2, description: 'Bottle' },
     { name: 'Hennessy VS ', price: 300000, categoryId: cats['Cognac'], isFeatured: true, preparationTime: 2, description: 'Bottle' },
     { name: 'Hennessy VS Quater', price: 90000, categoryId: cats['Cognac'], isFeatured: true, preparationTime: 2, description: 'Quater' },
     { name: 'Hennessy VS Shot', price: 75000, categoryId: cats['Cognac'], isFeatured: true, preparationTime: 2, description: 'Shot' },
@@ -416,9 +392,16 @@ async function main() {
     { name: 'House wine dry/sweet', price: 5000, categoryId: cats['Wines'], preparationTime: 2, description: 'glass' },
     { name: 'House White Wine', price: 5000, categoryId: cats['Wines'], preparationTime: 2 },
     { name: 'Rosé Wine', price: 3500, categoryId: cats['Wines'], preparationTime: 2 },
+    { name: 'Piche wine', price: 7000, categoryId: cats['Wines'], preparationTime: 2, description: 'Piche' },
     { name: 'Mojito', price: 8000, categoryId: cats['Cocktails'], isFeatured: true, preparationTime: 5 },
-    { name: 'Margarita', price: 4000, categoryId: cats['Cocktails'], preparationTime: 5 },
-    { name: 'Long Island Iced Tea', price: 5000, categoryId: cats['Cocktails'], preparationTime: 5 },
+    { name: 'Pinna colad', price: 8000, categoryId: cats['Cocktails'], preparationTime: 5 },
+    { name: 'Wrong Island Iced Tea', price: 10000, categoryId: cats['Cocktails'], preparationTime: 5 },
+    { name: 'Cosmopolitan', price: 10000, categoryId: cats['Cocktails'], preparationTime: 5 },
+    { name: 'Margarite', price: 10000, categoryId: cats['Cocktails'], preparationTime: 5 },
+    { name: 'Tequila sunrise', price: 10000, categoryId: cats['Cocktails'], preparationTime: 5 },
+    { name: 'Dawa', price: 10000, categoryId: cats['Cocktails'], preparationTime: 5 },
+    { name: 'White/Black Russian', price: 10000, categoryId: cats['Cocktails'], preparationTime: 5 },
+    { name: 'Sundowner spiced', price: 10000, categoryId: cats['Cocktails'], preparationTime: 5 },
     { name: 'Virgin Mojito', price: 2500, categoryId: cats['Mocktails'], preparationTime: 5 },
     { name: 'Fruit Punch', price: 5000, categoryId: cats['Mocktails'], preparationTime: 5 },
     { name: 'Captain Morgan', price: 3500, categoryId: cats['Rums'], preparationTime: 2, description: '50ml' },
@@ -459,7 +442,8 @@ async function main() {
     { name: 'Konyagi Half', price: 12000, categoryId: cats['Gins'], preparationTime: 2, description: 'Half' },
     { name: 'Konyagi Small', price: 5000, categoryId: cats['Gins'], preparationTime: 2, description: 'Small' },
     { name: 'Magic moment', price: 70000, categoryId: cats['Gins'], preparationTime: 2, description: 'Bottle' },
-    { name: 'U waragi', price: 25000, categoryId: cats['Gins'], preparationTime: 2, description: 'Bottle' },
+   
+    
   
   ];
 

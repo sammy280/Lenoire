@@ -6,7 +6,7 @@ import Badge from '../../components/shared/Badge';
 import StatCard from '../../components/shared/StatCard';
 import PageHeader from '../../components/shared/PageHeader';
 import BarQueue from '../shared/BarQueue';
-import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, Scissors, ChevronDown, ChevronUp, Minus, Plus, Lock, Unlock } from 'lucide-react';
+import { Receipt, DollarSign, Clock, CheckCircle, Printer, Globe, CreditCard, Table2, X, Users, GitMerge, Scissors, ChevronDown, ChevronUp, Minus, Plus, Lock, Unlock, ArrowLeftRight } from 'lucide-react';
 import PrintBill from '../../components/shared/PrintBill';
 import { useState, useEffect } from 'react';
 import { getSocket } from '../../lib/socket';
@@ -48,6 +48,20 @@ export default function CashierDashboard() {
   const [separateDestSeat, setSeparateDestSeat] = useState(null);
   const [separateDestChoice, setSeparateDestChoice] = useState(null); // 'merge' | 'new'
   const [separateError, setSeparateError] = useState('');
+
+  // Reassign Waiter state (FROM waiter → TO waiter, shift handover)
+  const [reassignModal, setReassignModal] = useState(false);
+  const [reassignStep, setReassignStep] = useState('fromWaiter'); // fromWaiter | source | sourceSeat | items | toWaiter | destTable | destSeat | destChoice | confirm
+  const [reassignFromWaiter, setReassignFromWaiter] = useState(null);
+  const [reassignSourceTable, setReassignSourceTable] = useState(null);
+  const [reassignSourceOrder, setReassignSourceOrder] = useState(null);
+  const [reassignQuantities, setReassignQuantities] = useState({});
+  const [reassignToWaiter, setReassignToWaiter] = useState(null);
+  const [reassignDestTable, setReassignDestTable] = useState(null);
+  const [reassignDestSeat, setReassignDestSeat] = useState(null);
+  const [reassignDestChoice, setReassignDestChoice] = useState(null); // 'merge' | 'new'
+  const [reassignDestUseAllTables, setReassignDestUseAllTables] = useState(false);
+  const [reassignError, setReassignError] = useState('');
 
   // Cash session state
   const [sessionModal, setSessionModal] = useState(null); // 'open' | 'close' | null
@@ -96,6 +110,41 @@ export default function CashierDashboard() {
     queryKey: ['seat-open-order', separateDestSeat?.id],
     queryFn: () => api.get(`/orders?seatId=${separateDestSeat?.id}&status=PENDING,PREPARING,READY,SERVED`),
     enabled: !!separateDestSeat?.id,
+  });
+
+  // ── Reassign: list of all waiters (for FROM / TO pickers) ──
+  const { data: waitersList } = useQuery({
+    queryKey: ['users', 'waiters'],
+    queryFn: () => api.get('/users?role=WAITER'),
+    enabled: reassignModal,
+  });
+
+  // ── Reassign: FROM waiter's currently active orders (their tables) ──
+  const { data: fromWaiterOrders, isLoading: fromWaiterOrdersLoading } = useQuery({
+    queryKey: ['orders', 'waiter', reassignFromWaiter?.id],
+    queryFn: () => api.get(`/orders?waiterId=${reassignFromWaiter.id}&status=PENDING,PREPARING,READY,SERVED`),
+    enabled: !!reassignFromWaiter?.id,
+  });
+
+  // ── Reassign: TO waiter's currently active orders (their tables) ──
+  const { data: toWaiterOrders, isLoading: toWaiterOrdersLoading } = useQuery({
+    queryKey: ['orders', 'waiter', reassignToWaiter?.id],
+    queryFn: () => api.get(`/orders?waiterId=${reassignToWaiter.id}&status=PENDING,PREPARING,READY,SERVED`),
+    enabled: !!reassignToWaiter?.id,
+  });
+
+  // ── Reassign: destination table detail (full seat list) ──
+  const { data: reassignDestTableDetail } = useQuery({
+    queryKey: ['table-detail', 'reassign-dest', reassignDestTable?.id],
+    queryFn: () => api.get(`/tables/${reassignDestTable.id}`),
+    enabled: !!reassignDestTable?.id,
+  });
+
+  // ── Reassign: check if destination seat already has an open order ──
+  const { data: reassignDestSeatOrderData } = useQuery({
+    queryKey: ['seat-open-order', 'reassign', reassignDestSeat?.id],
+    queryFn: () => api.get(`/orders?seatId=${reassignDestSeat?.id}&status=PENDING,PREPARING,READY,SERVED`),
+    enabled: !!reassignDestSeat?.id,
   });
 
   const confirmOnlinePayment = useMutation({
@@ -155,6 +204,23 @@ export default function CashierDashboard() {
     },
   });
 
+  // ── Reassign Waiter mutation — same /orders/separate endpoint, plus reassignWaiterId ──
+  const reassignWaiterItems = useMutation({
+    mutationFn: (data) => api.post('/orders/separate', data),
+    onSuccess: () => {
+      qc.invalidateQueries(['tables']);
+      qc.invalidateQueries(['bills']);
+      qc.invalidateQueries(['orders', 'active']);
+      qc.invalidateQueries({ queryKey: ['table-detail'] });
+      qc.invalidateQueries({ queryKey: ['seat-open-order'] });
+      qc.invalidateQueries({ queryKey: ['orders', 'waiter'] });
+      closeReassignModal();
+    },
+    onError: (err) => {
+      setReassignError(err?.message || 'Reassignment failed. Please try again.');
+    },
+  });
+
   // ── Cash session mutations ────────────────────────────────────────────
   const openSession = useMutation({
     mutationFn: (data) => api.post('/cash-sessions/open', data),
@@ -207,6 +273,7 @@ export default function CashierDashboard() {
       qc.invalidateQueries(['bills']);
       qc.invalidateQueries(['orders', 'active']);
       qc.invalidateQueries({ queryKey: ['table-detail'] });
+      qc.invalidateQueries({ queryKey: ['orders', 'waiter'] });
     });
     socket.on('cashSession:opened', () => qc.invalidateQueries(['cash-session-current']));
     socket.on('cashSession:closed', () => qc.invalidateQueries(['cash-session-current']));
@@ -362,7 +429,144 @@ const totalToday = activeSession ? parseFloat(activeSession.totalRevenue || 0) :
 
   const existingDestOrder = (destSeatOrderData?.data || []).find(o => o.id !== separateSourceOrder?.id);
 
-  // Step indicator component (shared visual style, works for both modals)
+  // ── Reassign Waiter handlers ────────────────────────────────────────────
+  const closeReassignModal = () => {
+    setReassignModal(false);
+    setReassignStep('fromWaiter');
+    setReassignFromWaiter(null);
+    setReassignSourceTable(null);
+    setReassignSourceOrder(null);
+    setReassignQuantities({});
+    setReassignToWaiter(null);
+    setReassignDestTable(null);
+    setReassignDestSeat(null);
+    setReassignDestChoice(null);
+    setReassignDestUseAllTables(false);
+    setReassignError('');
+  };
+
+  const openReassignModal = () => {
+    setReassignModal(true);
+    setReassignStep('fromWaiter');
+  };
+
+  const pickReassignFromWaiter = (waiter) => {
+    setReassignFromWaiter(waiter);
+    setReassignSourceTable(null);
+    setReassignSourceOrder(null);
+    setReassignStep('source');
+  };
+
+  // Group a waiter's active orders by table, e.g. { tableId: { table, orders: [...] } }
+  const fromWaiterOrdersList = fromWaiterOrders?.data || [];
+  const fromWaiterTablesMap = fromWaiterOrdersList.reduce((acc, order) => {
+    const tId = order.table?.id || order.tableId;
+    if (!tId) return acc;
+    if (!acc[tId]) acc[tId] = { table: order.table, orders: [] };
+    acc[tId].orders.push(order);
+    return acc;
+  }, {});
+  const fromWaiterTables = Object.values(fromWaiterTablesMap);
+
+  const toWaiterOrdersList = toWaiterOrders?.data || [];
+  const toWaiterTablesMap = toWaiterOrdersList.reduce((acc, order) => {
+    const tId = order.table?.id || order.tableId;
+    if (!tId) return acc;
+    if (!acc[tId]) acc[tId] = { table: order.table, orders: [] };
+    acc[tId].orders.push(order);
+    return acc;
+  }, {});
+  const toWaiterTables = Object.values(toWaiterTablesMap);
+
+  const pickReassignSourceTable = (table, ordersForTable) => {
+    setReassignSourceTable(table);
+    if (ordersForTable.length === 1) {
+      setReassignSourceOrder(ordersForTable[0]);
+      setReassignQuantities({});
+      setReassignStep('items');
+    } else {
+      setReassignStep('sourceSeat');
+    }
+  };
+
+  const pickReassignSourceOrder = (order) => {
+    setReassignSourceOrder(order);
+    setReassignQuantities({});
+    setReassignStep('items');
+  };
+
+  const setReassignItemQty = (item, qty) => {
+    const clamped = Math.max(0, Math.min(qty, item.quantity));
+    setReassignQuantities(q => ({ ...q, [item.id]: clamped }));
+  };
+
+  const reassignSelectedItemsPayload = Object.entries(reassignQuantities)
+    .filter(([, qty]) => qty > 0)
+    .map(([orderItemId, quantity]) => ({ orderItemId, quantity: Number(quantity) }));
+
+  const canContinueFromReassignItems = reassignSelectedItemsPayload.length > 0;
+
+  const goToToWaiter = () => {
+    if (!canContinueFromReassignItems) return;
+    setReassignError('');
+    setReassignStep('toWaiter');
+  };
+
+  const pickReassignToWaiter = (waiter) => {
+    setReassignToWaiter(waiter);
+    setReassignDestTable(null);
+    setReassignDestSeat(null);
+    setReassignDestUseAllTables(false);
+    setReassignStep('destTable');
+  };
+
+  const pickReassignDestTable = (table) => {
+    setReassignDestTable(table);
+    setReassignDestSeat(null);
+    setReassignStep('destSeat');
+  };
+
+  const pickReassignDestSeat = (seat) => {
+    if (reassignSourceOrder && seat.id === reassignSourceOrder.seatId) {
+      setReassignError('Destination seat must be different from the source seat.');
+      return;
+    }
+    setReassignError('');
+    setReassignDestSeat(seat);
+    setReassignDestChoice(null);
+    setReassignStep('__checking');
+  };
+
+  useEffect(() => {
+    if (reassignStep !== '__checking' || !reassignDestSeat) return;
+    const existing = (reassignDestSeatOrderData?.data || []).find(o => o.id !== reassignSourceOrder?.id);
+    if (existing) {
+      setReassignStep('destChoice');
+    } else {
+      setReassignDestChoice('new');
+      setReassignStep('confirm');
+    }
+  }, [reassignStep, reassignDestSeatOrderData, reassignDestSeat, reassignSourceOrder]);
+
+  const handleReassignConfirm = () => {
+    if (!reassignSourceOrder || !reassignDestTable || !reassignDestSeat || reassignSelectedItemsPayload.length === 0 || !reassignToWaiter) return;
+    const payload = {
+      sourceOrderId: reassignSourceOrder.id,
+      items: reassignSelectedItemsPayload,
+      destinationTableId: reassignDestTable.id,
+      destinationSeatId: reassignDestSeat.id,
+      reassignWaiterId: reassignToWaiter.id, // backend: apply to the destination order (ignored on merge, since it keeps the merged order's own waiter)
+    };
+    if (reassignDestChoice === 'merge') {
+      const existing = (reassignDestSeatOrderData?.data || []).find(o => o.id !== reassignSourceOrder.id);
+      if (existing) payload.destinationOrderId = existing.id;
+    }
+    reassignWaiterItems.mutate(payload);
+  };
+
+  const reassignExistingDestOrder = (reassignDestSeatOrderData?.data || []).find(o => o.id !== reassignSourceOrder?.id);
+
+  // Step indicator component (shared visual style, works for all three modals)
   const StepIndicator = ({ steps, currentKey }) => {
     const currentIdx = steps.findIndex(s => s.key === currentKey);
     return (
@@ -393,6 +597,17 @@ const totalToday = activeSession ? parseFloat(activeSession.totalRevenue || 0) :
     { key: 'confirm', label: 'Confirm' },
   ];
   const separateStepIndicatorKey = separateStep === '__checking' ? 'destSeat' : (separateStep === 'destChoice' ? 'confirm' : separateStep);
+
+  const REASSIGN_STEPS = [
+    { key: 'fromWaiter', label: 'From' },
+    { key: 'source', label: 'Table' },
+    { key: 'items', label: 'Items' },
+    { key: 'toWaiter', label: 'To' },
+    { key: 'destTable', label: 'Dest. Table' },
+    { key: 'destSeat', label: 'Dest. Seat' },
+    { key: 'confirm', label: 'Confirm' },
+  ];
+  const reassignStepIndicatorKey = reassignStep === '__checking' ? 'destSeat' : (reassignStep === 'destChoice' ? 'confirm' : (reassignStep === 'sourceSeat' ? 'source' : reassignStep));
 
   return (
     <div className="space-y-6">
@@ -471,7 +686,7 @@ const totalToday = activeSession ? parseFloat(activeSession.totalRevenue || 0) :
               <Table2 className="w-5 h-5 text-primary" />
               <h3 className="font-semibold">Occupied Tables</h3>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={openSeparateModal}
                 className="flex items-center gap-2 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/40 text-blue-400 rounded-xl text-sm font-semibold transition-all"
@@ -479,6 +694,14 @@ const totalToday = activeSession ? parseFloat(activeSession.totalRevenue || 0) :
                 <Scissors className="w-4 h-4" />
                 <span className="hidden sm:inline">Separate Items</span>
                 <span className="sm:hidden">Separate</span>
+              </button>
+              <button
+                onClick={openReassignModal}
+                className="flex items-center gap-2 px-3 py-2 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/40 text-teal-400 rounded-xl text-sm font-semibold transition-all"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+                <span className="hidden sm:inline">Reassign Waiter</span>
+                <span className="sm:hidden">Reassign</span>
               </button>
               {occupiedTables.length >= 2 && (
                 <button
@@ -1198,6 +1421,326 @@ const totalToday = activeSession ? parseFloat(activeSession.totalRevenue || 0) :
                     >
                       <Scissors className="w-4 h-4" />
                       {separateItems.isPending ? 'Separating…' : 'Confirm Separate'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reassign Waiter Modal (FROM waiter → TO waiter, shift handover) ── */}
+      {reassignModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <ArrowLeftRight className="w-5 h-5 text-teal-400" />
+                <h3 className="font-bold text-lg">Reassign Waiter</h3>
+              </div>
+              <button onClick={closeReassignModal} className="p-1.5 hover:bg-accent rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1">
+              <StepIndicator steps={REASSIGN_STEPS} currentKey={reassignStepIndicatorKey} />
+
+              {/* Step: pick FROM waiter */}
+              {reassignStep === 'fromWaiter' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">Whose tables are you handing over? (FROM)</p>
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+                    {(waitersList?.data || []).map(waiter => (
+                      <button key={waiter.id}
+                        onClick={() => pickReassignFromWaiter(waiter)}
+                        className={cn('px-4 py-3 rounded-xl border-2 font-semibold text-sm transition-all text-left',
+                          reassignFromWaiter?.id === waiter.id ? 'border-teal-500 bg-teal-500/20 text-teal-300' : 'border-border hover:border-teal-500/50 bg-accent/50'
+                        )}>
+                        {waiter.name}
+                      </button>
+                    ))}
+                  </div>
+                  {(waitersList?.data || []).length === 0 && <p className="text-sm text-muted-foreground text-center py-6">No waiters found</p>}
+                </div>
+              )}
+
+              {/* Step: pick source table (filtered to FROM waiter's active tables) */}
+              {reassignStep === 'source' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    <strong className="text-teal-400">{reassignFromWaiter?.name}</strong>'s tables — which one are you handing over from?
+                  </p>
+                  {fromWaiterOrdersLoading && <p className="text-sm text-muted-foreground text-center py-6">Loading…</p>}
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
+                    {fromWaiterTables.map(({ table, orders }) => (
+                      <button key={table?.id}
+                        onClick={() => pickReassignSourceTable(table, orders)}
+                        className={cn(
+                          'flex flex-col items-center justify-center h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105 sm:w-20',
+                          reassignSourceTable?.id === table?.id
+                            ? 'border-teal-500 bg-teal-500/20 text-teal-300'
+                            : 'border-border hover:border-teal-500/50 bg-accent/50'
+                        )}>
+                        <span className="text-2xl">{table?.name}</span>
+                        <span className="text-[9px] opacity-60 mt-0.5">{orders.length} order(s)</span>
+                      </button>
+                    ))}
+                  </div>
+                  {!fromWaiterOrdersLoading && fromWaiterTables.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-6">{reassignFromWaiter?.name} has no active tables right now</p>
+                  )}
+                  <button onClick={() => setReassignStep('fromWaiter')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Step: pick source order (only shown if the chosen table has multiple open orders) */}
+              {reassignStep === 'sourceSeat' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Which order on <strong className="text-teal-400">Table {reassignSourceTable?.name}</strong>?
+                  </p>
+                  <div className="space-y-2">
+                    {(fromWaiterTablesMap[reassignSourceTable?.id]?.orders || []).map(order => (
+                      <button key={order.id}
+                        onClick={() => pickReassignSourceOrder(order)}
+                        className="w-full flex items-center justify-between p-3 rounded-xl border-2 border-border hover:border-teal-500/50 bg-accent/30 transition-all text-left"
+                      >
+                        <div>
+                          <p className="font-semibold text-sm">Seat {order.seat?.label} — #{order.orderNumber?.slice(-6)}</p>
+                          <p className="text-xs text-muted-foreground">{order.items?.length} item line(s)</p>
+                        </div>
+                        <Badge status={order.status} />
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => setReassignStep('source')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Step: choose items + quantities */}
+              {reassignStep === 'items' && reassignSourceOrder && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Table <strong className="text-teal-400">{reassignSourceOrder.table?.name || reassignSourceTable?.name}</strong> • Seat <strong className="text-teal-400">{reassignSourceOrder.seat?.label}</strong> — choose how many of each item to reassign.
+                  </p>
+                  <div className="space-y-2">
+                    {reassignSourceOrder.items?.map(item => {
+                      const qty = reassignQuantities[item.id] || 0;
+                      return (
+                        <div key={item.id} className="flex items-center justify-between p-3 bg-accent/30 border border-border rounded-xl">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{item.product?.name}</p>
+                            <p className="text-xs text-muted-foreground">{item.quantity} ordered • {formatCurrency(parseFloat(item.unitPrice))} each</p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <button onClick={() => setReassignItemQty(item, qty - 1)} disabled={qty <= 0}
+                              className="w-7 h-7 rounded-lg bg-accent hover:bg-border disabled:opacity-30 flex items-center justify-center">
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="w-6 text-center text-sm font-bold">{qty}</span>
+                            <button onClick={() => setReassignItemQty(item, qty + 1)} disabled={qty >= item.quantity}
+                              className="w-7 h-7 rounded-lg bg-accent hover:bg-border disabled:opacity-30 flex items-center justify-center">
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button onClick={() => {
+                    const all = {};
+                    reassignSourceOrder.items?.forEach(i => { all[i.id] = i.quantity; });
+                    setReassignQuantities(all);
+                  }} className="text-xs text-teal-400 hover:underline">
+                    Select all items (full handover)
+                  </button>
+                  {reassignError && (
+                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{reassignError}</p>
+                  )}
+                  <div className="flex gap-3">
+                    <button onClick={() => ((fromWaiterTablesMap[reassignSourceTable?.id]?.orders?.length || 0) > 1 ? setReassignStep('sourceSeat') : setReassignStep('source'))} className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold">
+                      ← Back
+                    </button>
+                    <button onClick={goToToWaiter} disabled={!canContinueFromReassignItems}
+                      className="flex-1 py-3 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-bold disabled:opacity-50">
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: pick TO waiter */}
+              {reassignStep === 'toWaiter' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">Who's taking over these items? (TO)</p>
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+                    {(waitersList?.data || []).filter(w => w.id !== reassignFromWaiter?.id).map(waiter => (
+                      <button key={waiter.id}
+                        onClick={() => pickReassignToWaiter(waiter)}
+                        className={cn('px-4 py-3 rounded-xl border-2 font-semibold text-sm transition-all text-left',
+                          reassignToWaiter?.id === waiter.id ? 'border-green-500 bg-green-500/20 text-green-300' : 'border-border hover:border-green-500/50 bg-accent/50'
+                        )}>
+                        {waiter.name}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => setReassignStep('items')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Step: pick destination table (filtered to TO waiter's active tables, with fallback to all tables) */}
+              {reassignStep === 'destTable' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    <strong className="text-green-400">{reassignToWaiter?.name}</strong>'s tables — where should these items go?
+                  </p>
+                  {toWaiterOrdersLoading && <p className="text-sm text-muted-foreground text-center py-6">Loading…</p>}
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
+                    {(reassignDestUseAllTables ? allTables : toWaiterTables.map(t => t.table)).map(table => (
+                      <button key={table.id}
+                        onClick={() => pickReassignDestTable(table)}
+                        className={cn(
+                          'flex flex-col items-center justify-center h-20 rounded-xl border-2 font-bold text-sm transition-all hover:scale-105 sm:w-20',
+                          reassignDestTable?.id === table.id
+                            ? 'border-green-500 bg-green-500/20 text-green-300'
+                            : table.status === 'AVAILABLE'
+                              ? 'border-green-500/40 bg-green-500/5 text-green-300 hover:border-green-500/60'
+                              : 'border-border hover:border-green-500/50 bg-accent/50'
+                        )}>
+                        <span className="text-2xl">{table.name}</span>
+                        <span className="text-[9px] opacity-60 mt-0.5">{table.status === 'AVAILABLE' ? 'Available' : `${table.seats?.filter(s => s.isOccupied).length ?? 0} occupied`}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {!toWaiterOrdersLoading && !reassignDestUseAllTables && toWaiterTables.length === 0 && (
+                    <div className="text-center py-4 space-y-2">
+                      <p className="text-sm text-muted-foreground">{reassignToWaiter?.name} has no active tables yet.</p>
+                      <button onClick={() => setReassignDestUseAllTables(true)} className="text-sm text-green-400 hover:underline font-semibold">
+                        Pick from any table instead →
+                      </button>
+                    </div>
+                  )}
+                  {!reassignDestUseAllTables && toWaiterTables.length > 0 && (
+                    <button onClick={() => setReassignDestUseAllTables(true)} className="block text-xs text-muted-foreground hover:text-foreground hover:underline">
+                      Not listed? Pick from any table
+                    </button>
+                  )}
+                  <button onClick={() => setReassignStep('toWaiter')} className="text-sm text-muted-foreground hover:text-foreground block">← Back</button>
+                </div>
+              )}
+
+              {/* Step: pick destination seat */}
+              {reassignStep === 'destSeat' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Which seat on <strong className="text-green-400">Table {reassignDestTable?.name}</strong> should receive the items?
+                  </p>
+                  <div className="grid grid-cols-4 sm:flex sm:flex-wrap gap-2">
+                    {(reassignDestTableDetail?.data?.seats || reassignDestTable?.seats)?.map(seat => (
+                      <button key={seat.id}
+                        onClick={() => pickReassignDestSeat(seat)}
+                        disabled={reassignSourceOrder && seat.id === reassignSourceOrder.seatId}
+                        className={cn(
+                          'flex flex-col items-center justify-center h-16 rounded-xl border-2 font-bold text-sm transition-all sm:w-16',
+                          reassignSourceOrder && seat.id === reassignSourceOrder.seatId
+                            ? 'border-border bg-accent/30 text-muted-foreground opacity-40 cursor-not-allowed'
+                            : seat.isOccupied
+                              ? 'border-red-500/50 bg-red-500/10 text-red-300 hover:border-green-500/50'
+                              : 'border-green-500/40 bg-green-500/5 text-green-300 hover:border-green-500'
+                        )}>
+                        <span className="text-sm">{seat.label}</span>
+                        <span className="text-[9px] mt-0.5 opacity-70">{seat.isOccupied ? '🔴 Occupied' : '🟢 Free'}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {reassignError && (
+                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{reassignError}</p>
+                  )}
+                  <button onClick={() => setReassignStep('destTable')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Transitional: checking for existing order on destination seat */}
+              {reassignStep === '__checking' && (
+                <p className="text-sm text-muted-foreground text-center py-8">Checking destination seat…</p>
+              )}
+
+              {/* Step: merge into existing order, or create new */}
+              {reassignStep === 'destChoice' && reassignExistingDestOrder && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Seat <strong className="text-green-400">{reassignDestSeat?.label}</strong> on Table <strong className="text-green-400">{reassignDestTable?.name}</strong> already has an open order (#{reassignExistingDestOrder.orderNumber?.slice(-6)}). What should happen?
+                  </p>
+                  <div className="grid grid-cols-1 gap-3">
+                    <button onClick={() => { setReassignDestChoice('merge'); setReassignStep('confirm'); }}
+                      className={cn('p-4 rounded-xl border-2 text-left transition-all',
+                        reassignDestChoice === 'merge' ? 'border-teal-500 bg-teal-500/10' : 'border-border hover:border-teal-500/40 bg-accent/30'
+                      )}>
+                      <p className="font-semibold text-sm">Merge into existing order</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Items get added to order #{reassignExistingDestOrder.orderNumber?.slice(-6)}</p>
+                    </button>
+                    <button onClick={() => { setReassignDestChoice('new'); setReassignStep('confirm'); }}
+                      className={cn('p-4 rounded-xl border-2 text-left transition-all',
+                        reassignDestChoice === 'new' ? 'border-teal-500 bg-teal-500/10' : 'border-border hover:border-teal-500/40 bg-accent/30'
+                      )}>
+                      <p className="font-semibold text-sm">Create a brand new order under {reassignToWaiter?.name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Items become their own order on this seat</p>
+                    </button>
+                  </div>
+                  <button onClick={() => setReassignStep('destSeat')} className="text-sm text-muted-foreground hover:text-foreground">← Back</button>
+                </div>
+              )}
+
+              {/* Step: confirm */}
+              {reassignStep === 'confirm' && (
+                <div className="space-y-4">
+                  <div className="bg-accent/50 border border-border rounded-xl p-4 space-y-3 text-sm">
+                    <div className="flex items-center justify-center gap-2 font-semibold text-base flex-wrap">
+                      <span className="px-3 py-1.5 bg-teal-500/20 text-teal-300 rounded-lg">{reassignFromWaiter?.name}</span>
+                      <span className="text-muted-foreground text-lg">→</span>
+                      <span className="px-3 py-1.5 bg-green-500/20 text-green-300 rounded-lg">{reassignToWaiter?.name}</span>
+                    </div>
+                    <div className="flex items-center justify-center gap-4 font-semibold text-sm flex-wrap text-muted-foreground">
+                      <span>Table {reassignSourceOrder?.table?.name || reassignSourceTable?.name} • {reassignSourceOrder?.seat?.label}</span>
+                      <span>→</span>
+                      <span>Table {reassignDestTable?.name} • {reassignDestSeat?.label}</span>
+                    </div>
+                    <div className="pt-2 space-y-1">
+                      <p className="text-muted-foreground font-semibold">Items to reassign:</p>
+                      {reassignSourceOrder?.items
+                        ?.filter(i => (reassignQuantities[i.id] || 0) > 0)
+                        .map(i => (
+                          <div key={i.id} className="flex justify-between">
+                            <span>{reassignQuantities[i.id]}× {i.product?.name}</span>
+                            <span className="text-primary font-medium">{formatCurrency(parseFloat(i.unitPrice) * reassignQuantities[i.id])}</span>
+                          </div>
+                        ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground pt-1">
+                      {reassignDestChoice === 'merge'
+                        ? `These items will be added to the existing order on Table ${reassignDestTable?.name} • ${reassignDestSeat?.label}.`
+                        : `These items will become a new order owned by ${reassignToWaiter?.name} on Table ${reassignDestTable?.name} • ${reassignDestSeat?.label}.`}
+                      {' '}Bills already generated will be recalculated automatically.
+                    </p>
+                  </div>
+
+                  {reassignError && (
+                    <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{reassignError}</p>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button onClick={() => setReassignStep(reassignExistingDestOrder ? 'destChoice' : 'destSeat')} className="flex-1 py-3 bg-accent hover:bg-border rounded-xl text-sm font-semibold">
+                      ← Back
+                    </button>
+                    <button
+                      onClick={handleReassignConfirm}
+                      disabled={reassignWaiterItems.isPending}
+                      className="flex-1 py-3 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" />
+                      {reassignWaiterItems.isPending ? 'Reassigning…' : 'Confirm Reassign'}
                     </button>
                   </div>
                 </div>

@@ -62,10 +62,10 @@ export default function PrintBill({ bill, onClose, isPreview = false }) {
           <div ref={printRef} className="p-5 font-mono text-xs text-black bg-white">
             {/* Header */}
             <div className="center" style={{ textAlign: 'center', marginBottom: 8 }}>
-              <div className="large bold" style={{ fontSize: 20, fontWeight: 900, marginBottom: 2 }}>🍴 SAMMY'S</div>
+              <div className="large bold" style={{ fontSize: 20, fontWeight: 900, marginBottom: 2 }}>🍴 Le mistral</div>
               <div className="small" style={{ fontSize: 10, color: '#666' }}>Restaurant &amp; Bar</div>
               <div className="small" style={{ fontSize: 10, color: '#666' }}>Kigali, Rwanda</div>
-              <div className="small" style={{ fontSize: 10, color: '#666' }}>Tel: +250 788 000 000</div>
+              <div className="small" style={{ fontSize: 10, color: '#666' }}>Tel: 0799875971</div>
             </div>
 
             <div className="divider" style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
@@ -161,7 +161,7 @@ export default function PrintBill({ bill, onClose, isPreview = false }) {
 
             {/* Footer */}
             <div style={{ textAlign: 'center', color: '#555', fontSize: 10, marginTop: 8 }}>
-              <div>Thank you for dining at Sammy's!</div>
+              <div>Thank you for dining at Le mistral!</div>
               <div style={{ marginTop: 2 }}>Please come again 😊</div>
               <div style={{ marginTop: 6, fontSize: 9 }}>— Cashier: {bill.cashier?.name || '—'} —</div>
             </div>
