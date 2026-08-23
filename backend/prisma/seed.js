@@ -413,6 +413,7 @@ async function main() {
     { name: 'Strawberry Smoothie', price: 2500, categoryId: cats['Smoothies'], preparationTime: 5 },
     { name: 'Olmeca shot', price: 8000, categoryId: cats['Tequila'], preparationTime: 2, description: 'SHOT' },
     { name: 'Olmeca', price: 150000, categoryId: cats['Tequila'], preparationTime: 2, description: 'Bottle' },
+    { name: 'tequila camino shot', price: 5000, categoryId: cats['Tequila'], preparationTime: 2, description: 'SHOT ' },
     { name: 'Fresh Orange Juice', price: 1500, categoryId: cats['Juice'], preparationTime: 5 },
     { name: 'Mango Juice', price: 5000, categoryId: cats['Juice'], preparationTime: 5 }, 
     { name: 'Lemon juice', price: 4000, categoryId: cats['Juice'], preparationTime: 5 },
