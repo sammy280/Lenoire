@@ -139,11 +139,14 @@ export default function WaiterDashboard() {
     return { billNumber: 'PREVIEW', subtotal, tax: 0, discount: 0, total: subtotal, order: { ...order, items } };
   };
 
-  const readyOrders = (myOrders?.data || []).filter(o =>
-    (!o.kitchenOrder || ['READY', 'SERVED'].includes(o.kitchenOrder?.status)) &&
-    (!o.barOrder     || ['READY', 'SERVED'].includes(o.barOrder?.status)) &&
-    o.status !== 'SERVED'
-  );
+  // An order is servable as soon as EITHER its kitchen component OR its bar
+  // component is ready (or the order has no such component at all) — waiters
+  // deliver whichever part is ready first rather than waiting on both.
+  const readyOrders = (myOrders?.data || []).filter(o => {
+    const kitchenReady = !o.kitchenOrder || ['READY', 'SERVED'].includes(o.kitchenOrder?.status);
+    const barReady     = !o.barOrder     || ['READY', 'SERVED'].includes(o.barOrder?.status);
+    return (kitchenReady || barReady) && o.status !== 'SERVED';
+  });
     const unpaidServedOrders = (servedOrders?.data || []).filter(o => o.bill?.status !== 'PAID');
 
   const handleSeatClick = (seat) => {
@@ -171,11 +174,13 @@ export default function WaiterDashboard() {
       {(myOrders?.data || []).map(order => {
         const kitchenReady = !order.kitchenOrder || ['READY', 'SERVED'].includes(order.kitchenOrder?.status);
         const barReady     = !order.barOrder     || ['READY', 'SERVED'].includes(order.barOrder?.status);
-        const allReady     = kitchenReady && barReady;
+        // Show the serve button as soon as EITHER side is ready — waiters
+        // often deliver drinks while food is still being prepared, or vice versa.
+        const anyReady     = kitchenReady || barReady;
         return (
           <div key={order.id} className={cn(
             'bg-background border rounded-xl p-3 space-y-2 text-sm',
-            allReady ? 'border-green-500/60 bg-green-500/5 shadow-green-500/10 shadow-lg' : 'border-border'
+            anyReady ? 'border-green-500/60 bg-green-500/5 shadow-green-500/10 shadow-lg' : 'border-border'
           )}>
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-primary font-bold">#{order.orderNumber?.slice(-6)}</span>
@@ -204,7 +209,7 @@ export default function WaiterDashboard() {
                 {order.barOrder.status === 'READY' && <span className="ml-auto">✅</span>}
               </div>
             )}
-            {allReady && (
+            {anyReady && (
               <button onClick={() => markServed.mutate(order.id)} disabled={markServed.isPending}
                 className="w-full py-2 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-lg disabled:opacity-50 flex items-center justify-center gap-1">
                 <CheckCircle className="w-3.5 h-3.5" />
