@@ -7,27 +7,32 @@ import { FileText, RefreshCw, Download, ChevronDown, ChevronUp, Plus, Trash2 } f
 import * as XLSX from 'xlsx';
 
 function exportToCSV(report) {
+  const num = (v) => {
+    const n = parseFloat(v);
+    return isNaN(n) ? 0 : n;
+  };
+
   const rows = [
     ['Daily Report', new Date(report.date).toLocaleDateString()],
     [],
     ['SALES SUMMARY'],
-    ['Cash Sales', report.totalCash],
-    ['MoMo Sales', report.totalMomo],
-    ['Card Sales', report.totalCard],
-    ['Credit Sales', report.totalCredit],
-    ['Bar Sales', report.barSales],
-    ['Kitchen Sales', report.kitchenSales],
+    ['Cash Sales', num(report.totalCash)],
+    ['MoMo Sales', num(report.totalMomo)],
+    ['Card Sales', num(report.totalCard)],
+    ['Credit Sales', num(report.totalCredit)],
+    ['Bar Sales', num(report.barSales)],
+    ['Kitchen Sales', num(report.kitchenSales)],
     [],
-    ['EXPENSES', report.totalExpenses],
-    ['Recovery Received', report.recoveryAmount],
+    ['EXPENSES', num(report.totalExpenses)],
+    ['Recovery Received', num(report.recoveryAmount)],
     [],
     ['EXPENSE BREAKDOWN'],
     ['Item', 'Amount', 'Approved By'],
-    ...((report.expenseBreakdown || []).map(e => [e.item, e.amount, e.approvedBy])),
+    ...((report.expenseBreakdown || []).map(e => [e.item, num(e.amount), e.approvedBy])),
     [],
     ['CREDIT BREAKDOWN'],
     ['Name', 'Role', 'Amount', 'Balance'],
-    ...((report.creditBreakdown || []).map(c => [c.name, c.role, c.amount, c.balance])),
+    ...((report.creditBreakdown || []).map(c => [c.name, c.role, num(c.amount), num(c.balance)])),
     [],
     ['Notes', report.notes || ''],
     ['Created By', report.createdBy?.name],
@@ -39,7 +44,23 @@ function exportToCSV(report) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Daily Report');
 
-  XLSX.writeFile(wb, `daily-report-${new Date(report.date).toISOString().slice(0, 10)}.xlsx`);
+  // Write to an ArrayBuffer ourselves instead of relying on XLSX.writeFile's
+  // internal anchor-click, which some browsers/webviews mishandle and end up
+  // serving/opening the raw sheet XML instead of the zipped .xlsx package.
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+
+  const filename = `daily-report-${new Date(report.date).toISOString().slice(0, 10)}.xlsx`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export default function DailyReport() {
