@@ -44,9 +44,6 @@ function exportToCSV(report) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Daily Report');
 
-  // Write to an ArrayBuffer ourselves instead of relying on XLSX.writeFile's
-  // internal anchor-click, which some browsers/webviews mishandle and end up
-  // serving/opening the raw sheet XML instead of the zipped .xlsx package.
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([wbout], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -170,14 +167,12 @@ export default function DailyReport() {
             </button>
           </div>
           <div className="space-y-2">
-            {/* Auto-detected */}
             {(p.expenseBreakdown || []).map((e, i) => (
               <div key={i} className="flex gap-2 text-sm items-center bg-accent/30 rounded-lg px-3 py-2">
                 <span className="flex-1 text-muted-foreground">{e.item} — {formatCurrency(e.amount)} (approved by {e.approvedBy})</span>
                 <span className="text-xs text-muted-foreground">auto</span>
               </div>
             ))}
-            {/* Manual rows */}
             {expenseItems.map((row, i) => (
               <div key={i} className="grid grid-cols-3 gap-2">
                 <input placeholder="Item description" value={row.item} onChange={e => setExpenseItems(r => r.map((x, j) => j === i ? { ...x, item: e.target.value } : x))}
@@ -244,9 +239,17 @@ export default function DailyReport() {
         <div className="space-y-3">
           {(reports?.data || []).map(report => (
             <div key={report.id} className="border border-border rounded-xl overflow-hidden">
-              <button
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setExpandedId(expandedId === report.id ? null : report.id)}
-                className="w-full flex items-center justify-between p-4 hover:bg-accent/30 transition-colors"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setExpandedId(expandedId === report.id ? null : report.id);
+                  }
+                }}
+                className="w-full flex items-center justify-between p-4 hover:bg-accent/30 transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-4">
                   <span className="font-semibold">{new Date(report.date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span>
@@ -262,7 +265,7 @@ export default function DailyReport() {
                   </button>
                   {expandedId === report.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </div>
-              </button>
+              </div>
 
               {expandedId === report.id && (
                 <div className="p-4 border-t border-border bg-accent/20 space-y-4">
