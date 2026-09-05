@@ -856,7 +856,7 @@ model CashSession {
 }
 
 model ReturnItem {
-  id              String        @id
+  id              String        @id @default(cuid())
   returnRequestId String
   orderItemId     String
   quantity        Int
@@ -866,7 +866,7 @@ model ReturnItem {
 }
 
 model ReturnRequest {
-  id                                         String       @id
+  id                                         String       @id @default(cuid())
   orderId                                    String
   reason                                     String
   status                                     ReturnStatus @default(PENDING)
@@ -879,7 +879,7 @@ model ReturnRequest {
   managerActedAt                             DateTime?
   restockDone                                Boolean      @default(false)
   createdAt                                  DateTime     @default(now())
-  updatedAt                                  DateTime
+  updatedAt                                  DateTime     @updatedAt
   ReturnItem                                 ReturnItem[]
   User_ReturnRequest_managerApproverIdToUser User?        @relation("ReturnRequest_managerApproverIdToUser", fields: [managerApproverId], references: [id])
   Order                                      Order        @relation(fields: [orderId], references: [id])
