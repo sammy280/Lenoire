@@ -861,30 +861,30 @@ model ReturnItem {
   orderItemId     String
   quantity        Int
   reason          String?
-  OrderItem       OrderItem     @relation(fields: [orderItemId], references: [id])
-  ReturnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderItem       OrderItem     @relation(fields: [orderItemId], references: [id])
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
 }
 
 model ReturnRequest {
-  id                                         String       @id @default(cuid())
-  orderId                                    String
-  reason                                     String
-  status                                     ReturnStatus @default(PENDING)
-  requestedById                              String
-  reviewedById                               String?
-  reviewNote                                 String?
-  reviewedAt                                 DateTime?
-  managerApproverId                          String?
-  managerNote                                String?
-  managerActedAt                             DateTime?
-  restockDone                                Boolean      @default(false)
-  createdAt                                  DateTime     @default(now())
-  updatedAt                                  DateTime     @updatedAt
-  ReturnItem                                 ReturnItem[]
-  User_ReturnRequest_managerApproverIdToUser User?        @relation("ReturnRequest_managerApproverIdToUser", fields: [managerApproverId], references: [id])
-  Order                                      Order        @relation(fields: [orderId], references: [id])
-  User_ReturnRequest_requestedByIdToUser     User         @relation("ReturnRequest_requestedByIdToUser", fields: [requestedById], references: [id])
-  User_ReturnRequest_reviewedByIdToUser      User?        @relation("ReturnRequest_reviewedByIdToUser", fields: [reviewedById], references: [id])
+  id                String       @id @default(cuid())
+  orderId           String
+  reason            String
+  status            ReturnStatus @default(PENDING)
+  requestedById     String
+  reviewedById      String?
+  reviewNote        String?
+  reviewedAt        DateTime?
+  managerApproverId String?
+  managerNote       String?
+  managerActedAt    DateTime?
+  restockDone       Boolean      @default(false)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  items             ReturnItem[]
+  managerApprover   User?        @relation("ReturnRequest_managerApproverIdToUser", fields: [managerApproverId], references: [id])
+  order             Order        @relation(fields: [orderId], references: [id])
+  requestedBy       User         @relation("ReturnRequest_requestedByIdToUser", fields: [requestedById], references: [id])
+  reviewedBy        User?        @relation("ReturnRequest_reviewedByIdToUser", fields: [reviewedById], references: [id])
 }
 
 model SalaryAdvance {
